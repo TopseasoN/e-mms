@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>e-MMS ระบบบริหารจัดการงานซ่อมบำรุงออนไลน์</title>
+  <script>
+    // ส่งต่อไปยังโฟลเดอร์ ./web/ พร้อมรักษา Query Parameters และ Hash ของ LINE LIFF
+    window.location.replace('./web/' + (window.location.search || '') + (window.location.hash || ''));
+  </script>
+</head>
+<body>
+  <p style="font-family: sans-serif; text-align: center; margin-top: 2rem;">
+    กำลังเข้าสู่ระบบ e-MMS... <a href="./web/">คลิกที่นี่หากไม่เปลี่ยนหน้าอัตโนมัติ</a>
+  </p>
+</body>
+</html>

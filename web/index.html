@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>e-MMS ระบบบริหารจัดการงานซ่อมบำรุงออนไลน์</title>
+
+  <!-- Google Fonts: Sarabun & Prompt -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Sarabun', 'sans-serif'],
+            display: ['Prompt', 'sans-serif']
+          },
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#2563eb',
+              600: '#1d4ed8',
+              700: '#1e40af',
+              800: '#1e3a8a'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- LINE LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Sarabun', sans-serif;
+      background-color: #f1f5f9;
+      -webkit-tap-highlight-color: transparent;
+    }
+    h1, h2, h3, .font-display {
+      font-family: 'Prompt', sans-serif;
+    }
+    .safe-bottom {
+      padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800 safe-bottom">
+
+  <!-- Top Header -->
+  <header class="bg-gradient-to-r from-brand-700 to-brand-500 text-white shadow-md sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center text-xl font-bold">
+          🛠️
+        </div>
+        <div>
+          <h1 id="headerTitle" class="text-base font-semibold leading-tight">e-MMS แจ้งซ่อมบำรุงออนไลน์</h1>
+          <p id="headerSubtitle" class="text-xs text-blue-100">สถาบันพัฒนาการชลประทาน</p>
+        </div>
+      </div>
+      <div id="userBadge" class="hidden text-right">
+        <div id="userNameText" class="text-xs font-semibold truncate max-w-[140px]"></div>
+        <span id="userRoleBadge" class="inline-block text-[10px] px-2 py-0.5 rounded-full bg-white/20 text-white"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 flex items-center justify-center">
+    <div class="bg-white rounded-2xl p-6 shadow-xl flex flex-col items-center gap-3 max-w-xs w-full mx-4">
+      <div class="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+      <p id="loadingText" class="text-sm font-medium text-slate-700 text-center">กำลังเชื่อมต่อระบบ e-MMS...</p>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastBox" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 hidden max-w-md w-[92%] pointer-events-none">
+    <div id="toastInner" class="rounded-xl px-4 py-3 shadow-lg text-sm font-medium flex items-center justify-between"></div>
+  </div>
+
+  <!-- Main Container -->
+  <main class="max-w-3xl mx-auto px-4 pt-4">
+
+    <!-- API URL Setup Banner (แสดงเฉพาะเมื่อยังไม่ได้ตั้งค่า API_URL ใน config.js) -->
+    <section id="setupApiBanner" class="hidden bg-amber-50 border border-amber-300 rounded-2xl p-4 mb-4 shadow-xs">
+      <h2 class="font-display text-sm font-semibold text-amber-900 mb-1">⚙️ ตั้งค่าการเชื่อมต่อสำหรับทดสอบ</h2>
+      <p class="text-xs text-amber-800 mb-3">กรอก Web App URL ของ Google Apps Script และรหัส LINE จำลอง (สำหรับการทดสอบบนเบราว์เซอร์)</p>
+      <div class="space-y-2">
+        <input id="cfgApiUrlInput" type="url" placeholder="https://script.google.com/macros/s/.../exec"
+          class="w-full rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs" />
+        <div class="flex gap-2">
+          <input id="cfgSimLineIdInput" type="text" placeholder="LINE User ID จำลอง เช่น U1234567890abcdef1234567890abcdef"
+            class="flex-1 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs" />
+          <button onclick="saveDevConfig()" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-4 py-2 rounded-xl">
+            บันทึก & เชื่อมต่อ
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 0: First-Time Account Binding (Login) -->
+    <section id="viewLogin" class="hidden">
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mt-2">
+        <div class="text-center mb-5">
+          <div class="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center text-2xl mx-auto mb-3">
+            🔐
+          </div>
+          <h2 class="font-display text-lg font-bold text-slate-800">ยืนยันตัวตนและผูกบัญชี LINE</h2>
+          <p class="text-xs text-slate-500 mt-1">
+            เข้าสู่ระบบเพียงครั้งแรกครั้งเดียว ครั้งต่อไปจะเข้าใช้งานอัตโนมัติผ่าน LINE
+          </p>
+        </div>
+
+        <form id="loginForm" onsubmit="handleBindLogin(event)" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              ชื่อผู้ใช้ (Username / รหัสนักศึกษา) <span class="text-red-500">*</span>
+            </label>
+            <input id="loginUsername" type="text" required autocomplete="username"
+              placeholder="เช่น รหัสนักศึกษา หรือชื่อผู้ใช้"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              รหัสผ่าน (วันเดือนปีเกิด พ.ศ. 8 หลัก เหมือนรหัส WiFi) <span class="text-red-500">*</span>
+            </label>
+            <input id="loginPassword" type="password" required autocomplete="current-password"
+              placeholder="เช่น 19032540"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              เบอร์โทรศัพท์ติดต่อ (ไม่บังคับ)
+            </label>
+            <input id="loginPhone" type="tel" placeholder="เช่น 0812345678"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+
+          <button type="submit"
+            class="w-full bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white font-display font-semibold py-3 rounded-xl shadow-sm transition">
+            เข้าสู่ระบบและผูกบัญชี LINE
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- VIEW 1: แจ้งซ่อมใหม่ (Create Ticket) -->
+    <section id="viewCreate" class="hidden space-y-4">
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-display text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+          <span>📝</span> แจ้งซ่อมบำรุงใหม่
+        </h2>
+        <p class="text-xs text-slate-500 mb-4">กรุณาระบุสถานที่ หมวดงาน และแนบรูปถ่ายจุดที่ชำรุด 1–3 รูป</p>
+
+        <form id="createTicketForm" onsubmit="handleCreateTicket(event)" class="space-y-4">
+          <!-- อาคาร -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              1. อาคาร / พื้นที่ <span class="text-red-500">*</span>
+            </label>
+            <select id="fBuilding" required onchange="onBuildingChange()"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none">
+              <option value="">-- เลือกอาคาร / พื้นที่ --</option>
+            </select>
+          </div>
+
+          <!-- ชั้น / บริเวณ -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              2. ชั้น / บริเวณ <span class="text-red-500">*</span>
+            </label>
+            <select id="fLocation" required onchange="onLocationOrRoomChange()"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none">
+              <option value="">-- เลือกชั้น / บริเวณ --</option>
+            </select>
+          </div>
+
+          <!-- ห้อง (Autocomplete) -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              3. ห้อง / จุดสังเกต (ถ้ามี)
+            </label>
+            <input id="fRoom" type="text" list="roomSuggestions" oninput="onLocationOrRoomChange()"
+              placeholder="พิมพ์เลขห้อง เช่น A16, L413 หรือเว้นว่าง"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+            <datalist id="roomSuggestions"></datalist>
+          </div>
+
+          <!-- กล่องแจ้งเตือนงานซ้ำในจุดเดียวกัน -->
+          <div id="duplicateWarningBox" class="hidden bg-amber-50 border border-amber-300 rounded-xl p-3.5">
+            <div class="flex items-start gap-2">
+              <span class="text-base">⚠️</span>
+              <div class="flex-1">
+                <p class="text-xs font-bold text-amber-900">พบรายการแจ้งซ่อมที่ยังเปิดอยู่ในสถานที่เดียวกันนี้แล้ว:</p>
+                <ul id="duplicateList" class="mt-1.5 space-y-1 text-xs text-amber-800"></ul>
+                <p class="text-[11px] text-amber-700 mt-1.5">หากเป็นคนละจุดหรือคนละอาการ สามารถกรอกแจ้งต่อได้ตามปกติ</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- หมวดหลัก & หมวดย่อย -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">
+                4. หมวดงานหลัก <span class="text-red-500">*</span>
+              </label>
+              <select id="fMainCategory" required onchange="onMainCategoryChange()"
+                class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none">
+                <option value="">-- เลือกหมวดหลัก --</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">
+                5. หมวดงานย่อย <span class="text-red-500">*</span>
+              </label>
+              <select id="fSubCategory" required
+                class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none">
+                <option value="">-- เลือกหมวดย่อย --</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- รายละเอียดอาการเสีย -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              6. รายละเอียดอาการชำรุด / ปัญหาที่พบ <span class="text-red-500">*</span>
+            </label>
+            <textarea id="fDescription" rows="3" required
+              placeholder="อธิบายอาการเสียและจุดที่พบให้ชัดเจน เช่น หลอดไฟกระพริบ 2 ดวงหน้าห้องน้ำ..."
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none"></textarea>
+          </div>
+
+          <!-- เบอร์โทรศัพท์ติดต่อ -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              7. เบอร์โทรศัพท์ติดต่อกลับ <span class="text-red-500">*</span>
+            </label>
+            <input id="fPhone" type="tel" required placeholder="08xxxxxxxx"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm focus:border-brand-500 focus:outline-none" />
+          </div>
+
+          <!-- รูปถ่ายก่อนซ่อม 1-3 รูป -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              8. รูปภาพประกอบก่อนซ่อม (1–3 รูป) <span class="text-red-500">*</span>
+            </label>
+            <input id="fImagesInput" type="file" accept="image/*" multiple onchange="handleBeforeImagesSelected(event)" class="hidden" />
+            <div id="beforeImagesPreview" class="grid grid-cols-3 gap-2.5 mb-2"></div>
+            <button type="button" onclick="document.getElementById('fImagesInput').click()"
+              class="w-full border-2 border-dashed border-brand-500/50 hover:border-brand-600 bg-brand-50/50 text-brand-700 rounded-xl py-3 text-xs font-semibold flex items-center justify-center gap-2">
+              <span>📷</span> เลือกรูป / ถ่ายรูป (ย่อขนาดอัตโนมัติ สูงสุด 3 รูป)
+            </button>
+          </div>
+
+          <button type="submit"
+            class="w-full bg-brand-600 hover:bg-brand-700 active:scale-[0.99] text-white font-display font-semibold py-3.5 rounded-xl shadow-md transition">
+            🚀 ส่งใบแจ้งซ่อม
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- VIEW 2: งานของฉัน (My Tickets) -->
+    <section id="viewMyTickets" class="hidden space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-display text-base font-bold text-slate-800">📋 รายการแจ้งซ่อมของฉัน</h2>
+        <button onclick="loadMyTickets()" class="text-xs font-semibold text-brand-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+          🔄 รีเฟรช
+        </button>
+      </div>
+      <div id="myTicketsContainer" class="space-y-3"></div>
+    </section>
+
+    <!-- VIEW 3: คิวงานช่าง (Technician Queue) -->
+    <section id="viewTechQueue" class="hidden space-y-3">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-display text-base font-bold text-slate-800">🛠️ คิวงานซ่อมบำรุง (ทีมช่าง)</h2>
+          <button onclick="loadQueueTickets()" class="text-xs font-semibold text-brand-600 bg-brand-50 px-3 py-1.5 rounded-xl">
+            🔄 รีเฟรช
+          </button>
+        </div>
+
+        <!-- ตัวกรองสถานะ -->
+        <div id="queueFilterBar" class="flex gap-1.5 overflow-x-auto pb-1 text-xs">
+          <button onclick="setQueueFilter('ACTIVE')" data-filter="ACTIVE" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-brand-600 text-white shrink-0">งานค้างทั้งหมด</button>
+          <button onclick="setQueueFilter('PENDING')" data-filter="PENDING" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">รอตรวจสอบ</button>
+          <button onclick="setQueueFilter('ACCEPTED')" data-filter="ACCEPTED" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">รับงานแล้ว</button>
+          <button onclick="setQueueFilter('IN_PROGRESS')" data-filter="IN_PROGRESS" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">กำลังดำเนินการ</button>
+          <button onclick="setQueueFilter('ON_HOLD')" data-filter="ON_HOLD" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">รออะไหล่</button>
+          <button onclick="setQueueFilter('COMPLETED')" data-filter="COMPLETED" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">เสร็จสิ้น</button>
+          <button onclick="setQueueFilter('ALL')" data-filter="ALL" class="q-filter-btn px-3 py-1.5 rounded-xl font-semibold bg-slate-100 text-slate-700 shrink-0">ทั้งหมด</button>
+        </div>
+      </div>
+
+      <div id="queueTicketsContainer" class="space-y-3"></div>
+    </section>
+
+    <!-- VIEW 4: แดชบอร์ด & สถิติปีงบประมาณ (Admin Dashboard) -->
+    <section id="viewAdminDashboard" class="hidden space-y-4">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="font-display text-base font-bold text-slate-800">📊 รายงานสถิติซ่อมบำรุง</h2>
+          <p class="text-xs text-slate-500">สรุปตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) และภาระงานช่างรายบุคคล</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="dashFiscalYearSelect" onchange="loadAdminDashboard()"
+            class="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold">
+          </select>
+          <button onclick="exportDashboardCsv()"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-xl">
+            📥 Export Excel (CSV)
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Cards -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">ใบงานทั้งหมด</div>
+          <div id="kpiTotal" class="font-display text-2xl font-bold text-slate-800 mt-1">0</div>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">ดำเนินการเสร็จสิ้น</div>
+          <div id="kpiCompleted" class="font-display text-2xl font-bold text-emerald-600 mt-1">0</div>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">งานค้างดำเนินการ</div>
+          <div id="kpiPendingOpen" class="font-display text-2xl font-bold text-amber-600 mt-1">0</div>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">เวลารับงานเฉลี่ย</div>
+          <div id="kpiAvgResponse" class="font-display text-lg font-bold text-brand-600 mt-1">0 นาที</div>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">เวลาซ่อมเสร็จเฉลี่ย</div>
+          <div id="kpiAvgRepair" class="font-display text-lg font-bold text-indigo-600 mt-1">0 ชม.</div>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="text-xs text-slate-500">โควต้า LINE Push เดือนนี้</div>
+          <div id="kpiLineQuota" class="font-display text-lg font-bold text-slate-800 mt-1">0 / 300</div>
+        </div>
+      </div>
+
+      <!-- ตารางสถิติภาระงานช่างรายบุคคล -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-display text-sm font-bold text-slate-800">👷 สถิติการปฏิบัติงานของทีมช่าง (รายบุคคล)</h3>
+          <button onclick="triggerTelegramSummaryNow()" class="text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200 px-2.5 py-1 rounded-lg">
+            📣 ส่งสรุปงานค้างเข้า Telegram ทันที
+          </button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-slate-50 text-slate-600 border-b border-slate-200">
+              <tr>
+                <th class="py-2 px-2.5">ชื่อช่าง</th>
+                <th class="py-2 px-2.5 text-center">ร่วมซ่อมทั้งหมด</th>
+                <th class="py-2 px-2.5 text-center">ซ่อมเสร็จสิ้น</th>
+                <th class="py-2 px-2.5 text-center">กำลังทำ/รออะไหล่</th>
+                <th class="py-2 px-2.5 text-center">กดรับงานคนแรก</th>
+                <th class="py-2 px-2.5 text-right">เวลาซ่อมเฉลี่ย</th>
+              </tr>
+            </thead>
+            <tbody id="techStatsTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+          <h3 class="font-display text-sm font-bold text-slate-800 mb-2">แยกตามหมวดงาน</h3>
+          <canvas id="chartByCategory" height="220"></canvas>
+        </div>
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+          <h3 class="font-display text-sm font-bold text-slate-800 mb-2">แยกตามอาคาร (Top 8)</h3>
+          <canvas id="chartByBuilding" height="220"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 5: จัดการผู้ใช้ (Admin User Management) -->
+    <section id="viewAdminUsers" class="hidden space-y-3">
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 class="font-display text-base font-bold text-slate-800">👥 จัดการผู้ใช้งาน & รีเซ็ต LINE</h2>
+          <p class="text-xs text-slate-500">เพิ่ม/แก้ไขผู้ใช้ หรือกดรีเซ็ตกรณีผู้ใช้เปลี่ยนเครื่อง LINE</p>
+        </div>
+        <button onclick="openUserModal(null)"
+          class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl">
+          ＋ เพิ่มผู้ใช้ใหม่
+        </button>
+      </div>
+
+      <div class="bg-white rounded-2xl p-3 border border-slate-200 shadow-2xs">
+        <input id="userSearchInput" type="search" oninput="renderAdminUsersList()"
+          placeholder="🔍 ค้นหาชื่อ, username, รหัสนักศึกษา หรือส่วนงาน..."
+          class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs focus:border-brand-500 focus:outline-none" />
+      </div>
+
+      <div id="adminUsersContainer" class="space-y-2.5"></div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: อัปเดตสถานะ / ปิดงานซ่อมสำหรับช่าง -->
+  <div id="techActionModal" class="fixed inset-0 bg-slate-900/60 z-40 hidden items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto p-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+        <div>
+          <h3 id="modalTicketTitle" class="font-display text-base font-bold text-slate-800">อัปเดตสถานะงานซ่อม</h3>
+          <p id="modalTicketSub" class="text-xs text-slate-500"></p>
+        </div>
+        <button onclick="closeTechModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none px-2">✕</button>
+      </div>
+
+      <form id="techUpdateForm" onsubmit="submitTechStatusUpdate(event)" class="space-y-4">
+        <input type="hidden" id="mJtrId" />
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">เลือกสถานะที่ต้องการเปลี่ยน <span class="text-red-500">*</span></label>
+          <select id="mNextStatus" required onchange="onModalStatusChange()"
+            class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold">
+            <option value="IN_PROGRESS">⚙️ กำลังดำเนินการ (เข้าหน้างาน)</option>
+            <option value="ON_HOLD">⏳ รออะไหล่ / รอจัดซื้อ</option>
+            <option value="COMPLETED">✅ ดำเนินการเสร็จสิ้น (ปิดงาน)</option>
+            <option value="CANNOT_REPAIR">❌ ไม่สามารถซ่อมแซมได้ (ปิดงาน)</option>
+          </select>
+        </div>
+
+        <!-- ช่องสำหรับ ON_HOLD -->
+        <div id="mHoldSection" class="hidden">
+          <label class="block text-xs font-semibold text-slate-700 mb-1">ระบุเหตุผลที่รออะไหล่ / รอจัดซื้อ <span class="text-red-500">*</span></label>
+          <input id="mHoldReason" type="text" placeholder="เช่น รอเบิกหลอดไฟ LED 18W, รอร้านแอร์เข้าตรวจเช็ค"
+            class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm" />
+        </div>
+
+        <!-- ช่องสำหรับ COMPLETED / CANNOT_REPAIR -->
+        <div id="mCloseJobSection" class="hidden space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">ยืนยัน/แก้ไขหมวดงานซ่อมจริง</label>
+            <select id="mActualCategory"
+              class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs">
+            </select>
+          </div>
+
+          <div>
+            <label id="mCauseLabel" class="block text-xs font-semibold text-slate-700 mb-1">
+              สาเหตุ / วิธีแก้ไข <span class="text-red-500">*</span>
+            </label>
+            <textarea id="mCauseSolution" rows="2"
+              placeholder="เช่น เปลี่ยนหลอดไฟ LED ใหม่ 2 หลอด และเช็คขั้วสายไฟเรียบร้อย"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm"></textarea>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">วัสดุ / อะไหล่ที่ใช้ (ถ้ามี)</label>
+            <input id="mMaterialsUsed" type="text"
+              placeholder="เช่น หลอด LED 18W x2, เทปพันสายไฟ x1"
+              class="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm" />
+          </div>
+
+          <!-- Checkbox รายชื่อช่างผู้ร่วมปฏิบัติงาน -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1.5">
+              👷 ติ๊กเลือกช่างที่ร่วมปฏิบัติงานในใบงานนี้ทุกคน (สำหรับคิดสถิติรายบุคคล) <span class="text-red-500">*</span>
+            </label>
+            <div id="mCollaboratorsCheckboxes" class="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200"></div>
+          </div>
+
+          <!-- รูปหลังซ่อม 1-3 รูป -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">
+              📸 รูปถ่ายหลังซ่อม / หน้างาน (1–3 รูป) <span class="text-red-500">*</span>
+            </label>
+            <input id="mAfterImagesInput" type="file" accept="image/*" multiple onchange="handleAfterImagesSelected(event)" class="hidden" />
+            <div id="afterImagesPreview" class="grid grid-cols-3 gap-2 mb-2"></div>
+            <button type="button" onclick="document.getElementById('mAfterImagesInput').click()"
+              class="w-full border-2 border-dashed border-emerald-500/60 bg-emerald-50/50 text-emerald-800 rounded-xl py-2.5 text-xs font-semibold">
+              📷 เลือกรูป / ถ่ายรูปหลังซ่อม (สูงสุด 3 รูป)
+            </button>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button type="button" onclick="closeTechModal()"
+            class="flex-1 bg-slate-100 text-slate-700 font-semibold py-2.5 rounded-xl text-sm">
+            ยกเลิก
+          </button>
+          <button type="submit"
+            class="flex-1 bg-brand-600 hover:bg-brand-700 text-white font-display font-semibold py-2.5 rounded-xl text-sm shadow-sm">
+            บันทึกการอัปเดต
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: เพิ่ม/แก้ไขผู้ใช้งาน (Admin) -->
+  <div id="userEditModal" class="fixed inset-0 bg-slate-900/60 z-40 hidden items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl max-h-[92vh] overflow-y-auto p-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+        <h3 id="userModalTitle" class="font-display text-base font-bold text-slate-800">เพิ่ม/แก้ไขผู้ใช้งาน</h3>
+        <button onclick="closeUserModal()" class="text-slate-400 hover:text-slate-600 text-xl leading-none px-2">✕</button>
+      </div>
+      <form onsubmit="submitAdminUserForm(event)" class="space-y-3 text-xs">
+        <input type="hidden" id="uEditId" />
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">ชื่อ-นามสกุล *</label>
+          <input id="uEditName" type="text" required class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Username (รหัสนักศึกษา)</label>
+            <input id="uEditUsername" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Password (วดป.เกิด พ.ศ.)</label>
+            <input id="uEditPassword" type="text" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">เบอร์โทรศัพท์</label>
+            <input id="uEditPhone" type="tel" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">บทบาท (Role)</label>
+            <select id="uEditRole" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm">
+              <option value="user">user (ผู้แจ้ง)</option>
+              <option value="technician">technician (ช่าง)</option>
+              <option value="admin">admin (ผู้ดูแลระบบ)</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">สังกัด / ส่วนงาน</label>
+          <select id="uEditDept" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs"></select>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Telegram User ID (เฉพาะช่าง)</label>
+          <input id="uEditTelegramId" type="text" placeholder="ตัวเลข เช่น 123456789 (หรือพิมพ์ /link ในกลุ่ม)"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+        <div class="flex items-center gap-2 pt-1">
+          <input id="uEditActive" type="checkbox" checked class="w-4 h-4 rounded text-brand-600" />
+          <label for="uEditActive" class="font-semibold text-slate-700">เปิดใช้งานบัญชีนี้ (Active)</label>
+        </div>
+        <div class="flex gap-2 pt-3">
+          <button type="button" onclick="closeUserModal()" class="flex-1 bg-slate-100 text-slate-700 font-semibold py-2.5 rounded-xl text-sm">ยกเลิก</button>
+          <button type="submit" class="flex-1 bg-brand-600 text-white font-display font-semibold py-2.5 rounded-xl text-sm">บันทึก</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation Bar (แสดงตาม Role) -->
+  <nav id="bottomNav" class="hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 shadow-lg">
+    <div class="max-w-3xl mx-auto grid grid-flow-col auto-cols-fr text-center">
+      <button onclick="switchTab('create')" data-tab="create" class="nav-tab-btn py-2.5 flex flex-col items-center gap-0.5 text-brand-600 font-semibold">
+        <span class="text-lg leading-none">➕</span>
+        <span class="text-[11px]">แจ้งซ่อม</span>
+      </button>
+      <button onclick="switchTab('myTickets')" data-tab="myTickets" class="nav-tab-btn py-2.5 flex flex-col items-center gap-0.5 text-slate-500">
+        <span class="text-lg leading-none">📋</span>
+        <span class="text-[11px]">งานของฉัน</span>
+      </button>
+      <button id="navTabQueue" onclick="switchTab('techQueue')" data-tab="techQueue" class="nav-tab-btn hidden py-2.5 flex-col items-center gap-0.5 text-slate-500">
+        <span class="text-lg leading-none">🛠️</span>
+        <span class="text-[11px]">คิวงานช่าง</span>
+      </button>
+      <button id="navTabDashboard" onclick="switchTab('adminDashboard')" data-tab="adminDashboard" class="nav-tab-btn hidden py-2.5 flex-col items-center gap-0.5 text-slate-500">
+        <span class="text-lg leading-none">📊</span>
+        <span class="text-[11px]">รายงาน</span>
+      </button>
+      <button id="navTabUsers" onclick="switchTab('adminUsers')" data-tab="adminUsers" class="nav-tab-btn hidden py-2.5 flex-col items-center gap-0.5 text-slate-500">
+        <span class="text-lg leading-none">👥</span>
+        <span class="text-[11px]">ผู้ใช้</span>
+      </button>
+    </div>
+  </nav>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
