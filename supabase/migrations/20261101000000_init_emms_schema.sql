@@ -284,24 +284,63 @@ CREATE TRIGGER trg_before_insert_ticket
 BEFORE INSERT ON public."Trans_JobTickets"
 FOR EACH ROW EXECUTE FUNCTION public.trg_fn_before_insert_ticket();
 
--- Trigger สร้างรหัสอัตโนมัติให้ตารางย่อย (ASG, ATT, LOG, NTF, AUD, USER)
-CREATE OR REPLACE FUNCTION public.trg_fn_auto_sub_id()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+-- Trigger สร้างรหัสอัตโนมัติให้ตารางย่อยแยกตามตาราง (ASG, ATT, LOG, NTF, AUD, USER)
+DROP FUNCTION IF EXISTS public.trg_fn_auto_sub_id() CASCADE;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_asg_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    IF TG_TABLE_NAME = 'Trans_Assignments' AND (NEW.asg_id IS NULL OR NEW.asg_id = '') THEN
+    IF NEW.asg_id IS NULL OR NEW.asg_id = '' THEN
         NEW.asg_id := public.next_counter_id('ASG', 6, 'ASG');
-    ELSIF TG_TABLE_NAME = 'Trans_Attachments' AND (NEW.att_id IS NULL OR NEW.att_id = '') THEN
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_att_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NEW.att_id IS NULL OR NEW.att_id = '' THEN
         NEW.att_id := public.next_counter_id('ATT', 6, 'ATT');
-    ELSIF TG_TABLE_NAME = 'Trans_StatusLogs' AND (NEW.log_id IS NULL OR NEW.log_id = '') THEN
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_log_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NEW.log_id IS NULL OR NEW.log_id = '' THEN
         NEW.log_id := public.next_counter_id('LOG', 6, 'LOG');
-    ELSIF TG_TABLE_NAME = 'Sys_NotificationLogs' AND (NEW.notif_id IS NULL OR NEW.notif_id = '') THEN
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_ntf_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NEW.notif_id IS NULL OR NEW.notif_id = '' THEN
         NEW.notif_id := public.next_counter_id('NTF', 6, 'NTF');
-    ELSIF TG_TABLE_NAME = 'Sys_AuditLogs' AND (NEW.audit_id IS NULL OR NEW.audit_id = '') THEN
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_aud_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NEW.audit_id IS NULL OR NEW.audit_id = '' THEN
         NEW.audit_id := public.next_counter_id('AUD', 6, 'AUD');
-    ELSIF TG_TABLE_NAME = 'Master_Users' AND (NEW.user_id IS NULL OR NEW.user_id = '') THEN
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_auto_user_id()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NEW.user_id IS NULL OR NEW.user_id = '' THEN
         NEW.user_id := public.next_counter_id('USER', 4, 'USER');
     END IF;
     RETURN NEW;
@@ -310,27 +349,27 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_auto_asg_id ON public."Trans_Assignments";
 CREATE TRIGGER trg_auto_asg_id BEFORE INSERT ON public."Trans_Assignments"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_asg_id();
 
 DROP TRIGGER IF EXISTS trg_auto_att_id ON public."Trans_Attachments";
 CREATE TRIGGER trg_auto_att_id BEFORE INSERT ON public."Trans_Attachments"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_att_id();
 
 DROP TRIGGER IF EXISTS trg_auto_log_id ON public."Trans_StatusLogs";
 CREATE TRIGGER trg_auto_log_id BEFORE INSERT ON public."Trans_StatusLogs"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_log_id();
 
 DROP TRIGGER IF EXISTS trg_auto_ntf_id ON public."Sys_NotificationLogs";
 CREATE TRIGGER trg_auto_ntf_id BEFORE INSERT ON public."Sys_NotificationLogs"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_ntf_id();
 
 DROP TRIGGER IF EXISTS trg_auto_aud_id ON public."Sys_AuditLogs";
 CREATE TRIGGER trg_auto_aud_id BEFORE INSERT ON public."Sys_AuditLogs"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_aud_id();
 
 DROP TRIGGER IF EXISTS trg_auto_user_id ON public."Master_Users";
 CREATE TRIGGER trg_auto_user_id BEFORE INSERT ON public."Master_Users"
-FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_sub_id();
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_auto_user_id();
 
 -- ============================================================================
 -- 7. DECOUPLED NOTIFICATION TRIGGER (pg_net -> Edge Function notify-event)
