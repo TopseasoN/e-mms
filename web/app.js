@@ -763,7 +763,7 @@ async function initApp() {
   var cfg = window.EMMS_CONFIG || {};
   var urlParams = new URLSearchParams(window.location.search);
 
-  STATE.supabaseUrl = (urlParams.get('supabaseUrl') || localStorage.getItem('EMMS_SUPABASE_URL') || cfg.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  STATE.supabaseUrl = (urlParams.get('supabaseUrl') || localStorage.getItem('EMMS_SUPABASE_URL') || cfg.SUPABASE_URL || '').trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
   STATE.supabaseAnonKey = (urlParams.get('supabaseKey') || localStorage.getItem('EMMS_SUPABASE_ANON_KEY') || cfg.SUPABASE_ANON_KEY || '').trim();
   STATE.supabaseBucket = cfg.SUPABASE_BUCKET || 'ticket-attachments';
 

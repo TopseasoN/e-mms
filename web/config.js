@@ -8,10 +8,10 @@
  */
 window.EMMS_CONFIG = {
   // --- 1. Supabase Configuration (Primary Data Store & Storage) ---
-  // ตัวอย่าง: 'https://abcdefghijklm.supabase.co'
-  SUPABASE_URL: '',
+  // Base Project URL (ตัด /rest/v1 ออกเพื่อให้ Supabase SDK ใช้งานได้ทั้ง Database และ Storage)
+  SUPABASE_URL: 'https://nzmdyjhbogbichusgqjh.supabase.co',
   // Public Anon Key จากหน้า Supabase Dashboard -> Project Settings -> API
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bWR5amhib2diaWNodXNncWpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0NjE2ODMsImV4cCI6MjEwOTAzNzY4M30.kur4tbOJ1bRdFQpfMM04I76429BDy3wVDkll__ilNwI',
   // ชื่อ Bucket สำหรับเก็บรูปภาพก่อนซ่อม/หลังซ่อมบน Supabase Storage
   SUPABASE_BUCKET: 'ticket-attachments',
 
