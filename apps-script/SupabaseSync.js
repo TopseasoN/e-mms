@@ -34,19 +34,35 @@ function onOpen() {
 
 /**
  * อ่านค่าการเชื่อมต่อ Supabase จาก Script Properties
+ * พร้อม Normalize URL (ตัด /rest/v1 ออกอัตโนมัติ) และ Fallback ค่าเริ่มต้นของโปรเจกต์
  */
+var DEFAULT_SUPABASE_URL_ = 'https://nzmdyjhbogbichusgqjh.supabase.co';
+var DEFAULT_SUPABASE_ANON_KEY_ = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56bWR5amhib2diaWNodXNncWpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM0NjE2ODMsImV4cCI6MjEwOTAzNzY4M30.kur4tbOJ1bRdFQpfMM04I76429BDy3wVDkll__ilNwI';
+
 function getSupabaseCredentials_() {
   var props = PropertiesService.getScriptProperties();
-  var url = String(props.getProperty('SUPABASE_URL') || '').trim().replace(/\/+$/, '');
+  var url = String(props.getProperty('SUPABASE_URL') || '').trim();
   var key = String(props.getProperty('SUPABASE_KEY') || props.getProperty('SUPABASE_SERVICE_ROLE_KEY') || '').trim();
 
   if (!url) {
     try {
-      url = String(getConfig_('SUPABASE_URL', '')).trim().replace(/\/+$/, '');
+      url = String(getConfig_('SUPABASE_URL', '')).trim();
     } catch (e) {
       // ignore
     }
   }
+
+  // ตัด /rest/v1 และเครื่องหมาย / ท้าย URL ออกเสมอ เพื่อป้องกัน /rest/v1/rest/v1 ซ้ำ
+  url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/+$/, '');
+  if (!url) {
+    url = DEFAULT_SUPABASE_URL_;
+  }
+
+  // หากไม่ได้ตั้งค่า Key หรือใส่เป็น sb_publishable_/sb_secret_ ที่ไม่ใช่ JWT (eyJ...) ให้ใช้ JWT Anon Key
+  if (!key || key.indexOf('eyJ') !== 0) {
+    key = DEFAULT_SUPABASE_ANON_KEY_;
+  }
+
   return { url: url, key: key };
 }
 
@@ -70,7 +86,7 @@ function syncAllFromSupabase() {
   }
 
   var ss = getSs_();
-  // ตารางที่ต้องการ Sync จาก Supabase ลง Google Sheets เพื่อออกรายงาน
+  // ตารางทั้งหมด 15 ตารางที่ต้องการ Sync จาก Supabase ลง Google Sheets เพื่อออกรายงาน
   var targetTables = [
     { name: 'Trans_JobTickets', order: 'created_at.desc' },
     { name: 'Trans_Assignments', order: 'recorded_at.desc' },
@@ -83,35 +99,49 @@ function syncAllFromSupabase() {
     { name: 'Master_Rooms', order: 'room_id.asc' },
     { name: 'Master_Categories', order: 'sort_order.asc' },
     { name: 'Master_Statuses', order: 'sort_order.asc' },
+    { name: 'Sys_Config', order: 'config_key.asc' },
+    { name: 'Sys_Counters', order: 'counter_key.asc' },
     { name: 'Sys_NotificationLogs', order: 'sent_at.desc' },
     { name: 'Sys_AuditLogs', order: 'created_at.desc' }
   ];
 
   var summary = [];
+  var ticketCount = 0;
+  var errorCount = 0;
+  var firstError = '';
+
   for (var i = 0; i < targetTables.length; i++) {
     var item = targetTables[i];
     try {
       var count = syncSingleTableFromSupabase_(ss, creds, item.name, item.order);
+      if (item.name === 'Trans_JobTickets') ticketCount = count;
       summary.push(item.name + ': ' + count + ' แถว');
     } catch (tblErr) {
+      errorCount++;
+      if (!firstError) firstError = item.name + ' -> ' + tblErr.message;
       Logger.log('Sync table error [' + item.name + ']: ' + tblErr);
       summary.push(item.name + ': ERROR (' + tblErr.message + ')');
     }
   }
 
+  SpreadsheetApp.flush();
   var elapsedSec = ((new Date().getTime() - startMs) / 1000).toFixed(2);
-  var doneMsg = 'ซิงค์ข้อมูลจาก Supabase เสร็จสิ้นใน ' + elapsedSec + ' วินาที';
+  var doneMsg = errorCount === 0
+    ? ('ซิงค์ข้อมูลล่าสุดสำเร็จ (ใบงาน ' + ticketCount + ' รายการ) ใน ' + elapsedSec + ' วินาที')
+    : ('ซิงค์มีข้อผิดพลาด ' + errorCount + ' ตาราง: ' + firstError);
   Logger.log(doneMsg + ' -> ' + summary.join(', '));
 
   try {
-    ss.toast(doneMsg, '✅ e-MMS Sync สำเร็จ', 5);
+    ss.toast(doneMsg, errorCount === 0 ? '✅ e-MMS Sync สำเร็จ' : '⚠️ e-MMS Sync แจ้งเตือน', 6);
   } catch (e) {
     // รันผ่าน Time Trigger ไม่มี UI toast
   }
 
   return {
-    ok: true,
+    ok: errorCount === 0,
     elapsed_sec: Number(elapsedSec),
+    ticket_count: ticketCount,
+    error_count: errorCount,
     summary: summary
   };
 }
@@ -145,12 +175,26 @@ function syncSingleTableFromSupabase_(ss, creds, tableName, orderByClause) {
     headers: {
       apikey: creds.key,
       Authorization: 'Bearer ' + creds.key,
-      Accept: 'application/json'
+      Accept: 'application/json',
+      'Cache-Control': 'no-cache'
     },
     muteHttpExceptions: true
   });
 
   var code = res.getResponseCode();
+  if ((code === 401 || code === 403) && creds.key !== DEFAULT_SUPABASE_ANON_KEY_) {
+    res = UrlFetchApp.fetch(endpoint, {
+      method: 'get',
+      headers: {
+        apikey: DEFAULT_SUPABASE_ANON_KEY_,
+        Authorization: 'Bearer ' + DEFAULT_SUPABASE_ANON_KEY_,
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache'
+      },
+      muteHttpExceptions: true
+    });
+    code = res.getResponseCode();
+  }
   if (code < 200 || code >= 300) {
     throw new Error('HTTP ' + code + ': ' + res.getContentText());
   }

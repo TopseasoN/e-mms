@@ -69,13 +69,13 @@
 | Apps Script **Script ID** | `1_gCIrGV1c5HL0lzXUSTsJl8fpmTvaj9jDNupNivhT_d4TlEIlrsjK87f` |
 | Web App **Deployment ID** (ใช้ ID นี้ตลอด ห้ามสร้างใหม่) | `AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk` |
 | **Web App / Webhook URL** (Fallback & Sheets Sync) | `https://script.google.com/macros/s/AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk/exec` |
-| Deployment version ล่าสุด | `@6` |
+| Deployment version ล่าสุด | `@7` |
 | GitHub repo | https://github.com/TopseasoN/e-mms |
 | GitHub Pages (หน้าเว็บ LIFF Endpoint) | https://topseason.github.io/e-mms/web/ |
 | LINE Login Channel ID | `2012286335` |
-| LIFF ID | อยู่ในตาราง `Sys_Config` → `LIFF_ID` (รูปแบบ `2012286335-xxxxxxxx`) |
+| LIFF ID | `2012286335-4EtoE0Pf` |
 | Google Drive โฟลเดอร์รูป (สำรอง) | `1VSmtUyahQ3XTytpap1IROfKO_jTTP-ez` |
-| Telegram Chat ID กลุ่มช่าง | อยู่ในตาราง `Sys_Config` → `TELEGRAM_CHAT_ID` |
+| Telegram Chat ID กลุ่มช่าง | `-1004317651111` |
 | Admin เริ่มต้น | username `thanawat.b` (USER0001, นายธนาวัฒน์ บุตรศรี) |
 
 **Secrets** (ห้ามใส่ในโค้ดหรือในชีต):
@@ -140,7 +140,7 @@ e-MMS_ระบบบริหารจัดการงานซ่อมบ�
 | เฟส | งาน | สถานะ |
 |---|---|---|
 | 1 | สัมภาษณ์ความต้องการ (`/grill-me` 20 ข้อ) + ออกแบบฐานข้อมูล 15 ตาราง | ✅ เสร็จ |
-| 2 | Backend Google Apps Script + ระบบ Sync รายงานจาก Supabase (`SupabaseSync.js`) + Deploy `@6` | ✅ เสร็จ |
+| 2 | Backend Google Apps Script + ระบบ Sync รายงานจาก Supabase (`SupabaseSync.js`) + Deploy `@7` | ✅ เสร็จ |
 | 3 | Frontend LIFF Web App (`web/`) รองรับ Direct Supabase Client + Storage (< 1 วินาที) | ✅ เสร็จ |
 | 4 | โครงสร้าง Supabase SQL Migration + Edge Functions (`notify-event`, `telegram-webhook`, `line-webhook`) | ✅ เสร็จ |
 | 5 | คู่มือตั้งค่า (`SETUP_GUIDE.md`) รวม Rich Menu และการตั้งค่า Supabase | ✅ เสร็จ |
@@ -288,7 +288,7 @@ git add -A && git commit -m "..." && git push
 |---|---|
 | 2569-10-29 | วิเคราะห์ข้อมูลเก่า (630 งาน, 44 สถานที่, ช่าง 5 คน, 4 สถานะ) · สัมภาษณ์ `/grill-me` 20 ข้อ · ออกแบบ schema 15 ชีต · สร้าง `SetupDatabase.js`, `export_schema.js`, CSV, `DATABASE.md`, `BLUEPRINT.md`, `SETUP_GUIDE.md` |
 | 2569-10-30 | เจ้าของตั้งค่า LINE OA/LIFF/Telegram/Script Properties · เขียน backend ครบ 8 ไฟล์ + clasp push + deploy · เขียน frontend `web/` · ขึ้น GitHub Pages (`topseason.github.io/e-mms`) · เพิ่มคู่มือ Rich Menu + `?tab=` · แก้ bug Drive folder ID มี `?lfhs=2` (Deploy `@5`) |
-| 2569-11-01 | สร้าง `README.md` + `AGENTS.md` · **สัมภาษณ์ `/grill-me` รอบที่ 2 เพื่อย้ายสถาปัตยกรรมหลักสู่ Supabase (Sub-second Latency < 1s)** · วิเคราะห์สถิติรูปภาพจริงจากระบบเดิม (851 ภาพ ตั้งแต่ 1/12/2567 – 29/10/2569 ใช้พื้นที่เพียง 89.9 MB → โควต้าฟรี 1 GB บน Supabase Storage ใช้ได้ ~20 ปี) · สร้าง `supabase/migrations/20261101000000_init_emms_schema.sql`, Edge Functions 3 ตัว (`notify-event`, `telegram-webhook`, `line-webhook`), สร้าง `apps-script/SupabaseSync.js` สำหรับซิงค์ข้อมูลลง Google Sheets แบบ Read-Only ทุก 1 ชม. + ปุ่มเมนูรีเฟรช · อัปเกรด `web/app.js` และ `web/config.js` ให้เชื่อมต่อ Supabase ตรง · Deploy Apps Script เวอร์ชัน `@6` · **Deploy Supabase Edge Functions 3 ตัวสำเร็จ, ตั้งค่า Secret Tokens (Telegram/LINE/Chat ID), ทดสอบส่งข้อความเข้ากลุ่ม Telegram สำเร็จ, ผูก Webhook ของ Telegram และ LINE OA เรียบร้อย** |
+| 2569-11-01 | สร้าง `README.md` + `AGENTS.md` · **สัมภาษณ์ `/grill-me` รอบที่ 2 เพื่อย้ายสถาปัตยกรรมหลักสู่ Supabase (Sub-second Latency < 1s)** · วิเคราะห์สถิติรูปภาพจริงจากระบบเดิม (851 ภาพ ตั้งแต่ 1/12/2567 – 29/10/2569 ใช้พื้นที่เพียง 89.9 MB → โควต้าฟรี 1 GB บน Supabase Storage ใช้ได้ ~20 ปี) · สร้าง `supabase/migrations/20261101000000_init_emms_schema.sql`, Edge Functions 3 ตัว (`notify-event`, `telegram-webhook`, `line-webhook`), สร้าง `apps-script/SupabaseSync.js` สำหรับซิงค์ข้อมูลลง Google Sheets แบบ Read-Only ทุก 1 ชม. + ปุ่มเมนูรีเฟรช · อัปเกรด `web/app.js` และ `web/config.js` ให้เชื่อมต่อ Supabase ตรง · **Deploy Supabase Edge Functions 3 ตัวสำเร็จ, ตั้งค่า Secret Tokens, แก้บั๊ก Google Sheets Sync URL `/rest/v1` ซ้ำ (Deploy `@7`), ตั้งค่า `LIFF_ID: 2012286335-4EtoE0Pf` พร้อมปิดหน้าต่าง LIFF อัตโนมัติหลังส่งงาน และปรับปรุงระบบ Auto-Link Telegram ช่าง** |
 
 ---
 

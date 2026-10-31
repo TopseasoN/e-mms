@@ -7,7 +7,7 @@
    - **Decoupled Notifications**: Supabase Edge Functions ใน `supabase/functions/` (`notify-event`, `telegram-webhook`, `line-webhook`)
    - **Frontend (`web/`)**: เชื่อมต่อ Supabase ตรงผ่าน `@supabase/supabase-js` เพื่อลด Latency เหลือ < 1–2 วินาที (พร้อม Fallback ไปยัง Apps Script อัตโนมัติหากยังไม่ได้ตั้งค่า `SUPABASE_URL`)
    - **Google Sheets Reporting (`apps-script/`)**: ทำหน้าที่เป็น Consumer/Viewer (Read-Only) ดึงข้อมูลจาก Supabase REST API ทุก 1 ชั่วโมงผ่าน `apps-script/SupabaseSync.js`
-4. **การแก้ไข Backend Apps Script**: แก้ใน `apps-script/` → `node --check` → `clasp push --force` → `clasp deploy -i AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk` (ห้ามสร้าง deployment ใหม่ ปัจจุบันคือ `@6`)
+4. **การแก้ไข Backend Apps Script**: แก้ใน `apps-script/` → `node --check` → `clasp push --force` → `clasp deploy -i AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk` (ห้ามสร้าง deployment ใหม่ ปัจจุบันคือ `@7`)
 5. **การแก้ไข Schema**: ต้องรักษาให้ตรงกันทั้งใน `supabase/migrations/` และ `DB_SCHEMA` ใน `apps-script/SetupDatabase.js` (แล้วรัน `node tools/export_schema.js`) เพื่อให้ระบบ Sync ลง Google Sheets ทำงานได้ตรงคอลัมน์ 100%
 6. ห้าม commit โฟลเดอร์ `Databases/` และห้ามใส่ token/secret (เช่น `SUPABASE_SERVICE_ROLE_KEY`, `TELEGRAM_BOT_TOKEN`, `LINE_CHANNEL_ACCESS_TOKEN`) ลงในโค้ดหรือในชีตโดยเด็ดขาด
 7. **ทำงานเสร็จทุกครั้ง ให้อัปเดต [README.md](README.md)** หัวข้อ 5 (สถานะปัจจุบัน), 12 (Changelog), 13 (งานที่เหลือ) และเลข Deployment version ในหัวข้อ 3

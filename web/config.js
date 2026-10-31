@@ -18,8 +18,8 @@ window.EMMS_CONFIG = {
   // --- 2. Google Apps Script Web App URL (Fallback / Reporting Sync) ---
   API_URL: 'https://script.google.com/macros/s/AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk/exec',
 
-  // หากเว้นว่างไว้ ระบบจะดึง LIFF_ID จากตาราง Sys_Config มาให้อัตโนมัติ
-  LIFF_ID: '',
+  // LIFF ID จาก LINE Developers Console
+  LIFF_ID: '2012286335-4EtoE0Pf',
 
   // เปิดโหมดทดสอบบนเบราว์เซอร์คอมพิวเตอร์กรณีไม่ได้เปิดในแอป LINE
   ALLOW_BROWSER_DEV_MODE: true

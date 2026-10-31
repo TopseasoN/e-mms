@@ -57,15 +57,51 @@ serve(async (req) => {
       });
     }
 
-    // รอ 300ms เผื่อกรณี Frontend กำลัง Insert Trans_Attachments ตามหลังใบงาน
+    // รอ 900ms เผื่อกรณี Frontend กำลังอัปโหลดรูปและ Insert Trans_Attachments ตามหลังใบงาน
     if (event === "TICKET_CREATED") {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 900));
     }
 
     const ticket = await getEnrichedTicketById(supabase, jtrId);
     if (!ticket) {
       return new Response(JSON.stringify({ ok: false, error: `Ticket ${jtrId} not found` }), {
         status: 404,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      });
+    }
+
+    // กรณี Fallback ส่งการ์ดใบรับเรื่องเข้า LINE OA เมื่อ liff.sendMessages ถูกจำกัดสิทธิ์
+    if (event === "TICKET_CREATED_LINE_PUSH") {
+      const targetLineId = String(body.line_user_id || ticket.requester_line_id || "").trim();
+      if (
+        LINE_CHANNEL_ACCESS_TOKEN &&
+        targetLineId &&
+        targetLineId !== "U11111111111111111111111111111111"
+      ) {
+        const flex = buildTicketFlexMessage(ticket, "📋 รับเรื่องแจ้งซ่อมเรียบร้อยแล้ว", cfg);
+        const pushRes = await fetch("https://api.line.me/v2/bot/message/push", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+          },
+          body: JSON.stringify({
+            to: targetLineId,
+            messages: [flex],
+          }),
+        });
+        const pushText = await pushRes.text();
+        await logNotification(
+          supabase,
+          jtrId,
+          "LINE_PUSH",
+          "TICKET_CREATED_PUSH_FALLBACK",
+          targetLineId,
+          pushRes.ok ? "SENT" : "FAILED",
+          pushRes.ok ? "" : `HTTP ${pushRes.status}: ${pushText}`
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, jtr_id: jtrId, event }), {
         headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       });
     }
@@ -126,8 +162,13 @@ serve(async (req) => {
         });
       }
 
-      // 3.2 ส่ง LINE Push แจ้งผู้แจ้งหากสถานะนี้เปิด notify_requester = TRUE
-      if (ticket.notify_requester && ticket.requester_line_id && LINE_CHANNEL_ACCESS_TOKEN) {
+      // 3.2 ส่ง LINE Push แจ้งผู้แจ้งหากสถานะนี้เปิด notify_requester = TRUE (และไม่ใช่รหัสจำลอง Browser Dev)
+      if (
+        ticket.notify_requester &&
+        ticket.requester_line_id &&
+        ticket.requester_line_id !== "U11111111111111111111111111111111" &&
+        LINE_CHANNEL_ACCESS_TOKEN
+      ) {
         await sendLinePushWithQuota(supabase, ticket, cfg, tgChatId);
       }
     }

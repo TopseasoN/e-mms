@@ -49,6 +49,18 @@ serve(async (req) => {
           const jtrId = match[1].toUpperCase();
           const ticket = await getEnrichedTicketById(supabase, jtrId);
           if (ticket) {
+            // หากผู้แจ้งเดิมยังผูกกับรหัสจำลอง Browser Dev หรือยังว่าง ให้บันทึก senderLineId จริงให้อัตโนมัติ
+            if (
+              senderLineId &&
+              ticket.requester_id &&
+              (!ticket.requester_line_id || ticket.requester_line_id === "U11111111111111111111111111111111")
+            ) {
+              await supabase
+                .from("Master_Users")
+                .update({ line_user_id: senderLineId, updated_at: new Date().toISOString() })
+                .eq("user_id", ticket.requester_id);
+            }
+
             const flex = buildTicketFlexMessage(ticket, "📋 รับเรื่องแจ้งซ่อมเรียบร้อยแล้ว", cfg);
             const res = await fetch("https://api.line.me/v2/bot/message/reply", {
               method: "POST",

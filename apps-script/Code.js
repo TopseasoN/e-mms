@@ -22,10 +22,13 @@ function doGet(e) {
     if (action === 'publicConfig') {
       return jsonResponse_({ ok: true, data: getPublicConfig_() });
     }
+    if (action === 'syncFromSupabase') {
+      return jsonResponse_(syncAllFromSupabase());
+    }
     return jsonResponse_({
       ok: true,
       service: 'e-MMS API & Webhook',
-      version: '1.0.0',
+      version: '1.1.0',
       timestamp: new Date().toISOString()
     });
   } catch (err) {

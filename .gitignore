@@ -5,3 +5,4 @@ Thumbs.db
 
 # ข้อมูลฐานข้อมูลที่มีข้อมูลส่วนบุคคล/รหัสผ่านจริง (ไม่ควรขึ้น Public GitHub)
 Databases/
+supabase/.temp/

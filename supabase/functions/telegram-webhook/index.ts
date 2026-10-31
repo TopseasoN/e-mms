@@ -32,11 +32,12 @@ serve(async (req) => {
       const [action, jtrId] = String(cq.data || "").split("|");
 
       if (action === "ACCEPT" && jtrId) {
-        const techUser = await resolveTechnicianFromTelegram(supabase, cq.from);
+        const { techUser, availableUsernames } = await resolveTechnicianFromTelegram(supabase, cq.from);
         if (!techUser) {
+          const exampleUser = availableUsernames[0] || "thanawat.b";
           await answerCallback(
             cq.id,
-            "⚠️ บัญชี Telegram ของคุณยังไม่ผูกกับระบบช่าง\nกรุณาพิมพ์ /link ตามด้วยชื่อผู้ใช้ของคุณในกลุ่มนี้ 1 ครั้ง (เช่น /link surachat)",
+            `⚠️ บัญชี Telegram ของคุณยังไม่ผูกกับระบบช่าง\nกรุณาพิมพ์ /link ตามด้วยชื่อผู้ใช้ของคุณในกลุ่มนี้ 1 ครั้ง (เช่น /link ${exampleUser})`,
             true
           );
           return new Response(JSON.stringify({ ok: true }), {
@@ -147,34 +148,54 @@ serve(async (req) => {
 });
 
 async function resolveTechnicianFromTelegram(supabase: any, tgFrom: any) {
-  if (!tgFrom?.id) return null;
+  if (!tgFrom?.id) return { techUser: null, availableUsernames: [] };
   const tgId = String(tgFrom.id).trim();
   const firstName = String(tgFrom.first_name || "").trim();
+  const tgUsername = String(tgFrom.username || "").trim().toLowerCase();
 
   const { data: users } = await supabase.from("Master_Users").select("*").eq("is_active", true);
-  if (!users) return null;
+  if (!users || users.length === 0) return { techUser: null, availableUsernames: [] };
 
   // 1. ค้นหาจาก telegram_user_id ที่ผูกไว้แล้ว
   const byId = users.find((u: any) => String(u.telegram_user_id || "").trim() === tgId);
-  if (byId) return byId;
+  if (byId) return { techUser: byId, availableUsernames: [] };
 
-  // 2. หากยังไม่ผูก แต่ชื่อ Telegram ตรงกับชื่อช่าง ให้ผูกอัตโนมัติ
-  if (firstName) {
-    const byName = users.find(
-      (u: any) =>
-        (u.user_role === "technician" || u.user_role === "admin") &&
-        !u.telegram_user_id &&
-        String(u.user_name || "").includes(firstName)
-    );
-    if (byName) {
-      await supabase
-        .from("Master_Users")
-        .update({ telegram_user_id: tgId, updated_at: new Date().toISOString() })
-        .eq("user_id", byName.user_id);
-      return byName;
-    }
+  const techPool = users.filter((u: any) => u.user_role === "technician" || u.user_role === "admin");
+  const unlinkedTechs = techPool.filter((u: any) => !String(u.telegram_user_id || "").trim());
+
+  // 2. หากยังไม่ผูก แต่ชื่อ Telegram หรือ username ตรงกับชื่อช่าง ให้ผูกอัตโนมัติ
+  const byNameOrUser = unlinkedTechs.find((u: any) => {
+    const uName = String(u.user_name || "").trim().toLowerCase();
+    const uUsername = String(u.user_username || "").trim().toLowerCase();
+    if (firstName && uName.includes(firstName.toLowerCase())) return true;
+    if (tgUsername && uUsername && (uUsername === tgUsername || uUsername.startsWith(tgUsername))) return true;
+    return false;
+  });
+
+  // 3. หากในระบบมีช่าง/แอดมินที่ยังไม่ผูก Telegram อยู่เพียง 1 คน (เช่น ช่วงเริ่มต้นระบบ) ให้ผูกให้อัตโนมัติทันที
+  const autoTarget = byNameOrUser || (unlinkedTechs.length === 1 ? unlinkedTechs[0] : null);
+
+  if (autoTarget) {
+    await supabase
+      .from("Master_Users")
+      .update({ telegram_user_id: tgId, updated_at: new Date().toISOString() })
+      .eq("user_id", autoTarget.user_id);
+
+    await supabase.from("Sys_AuditLogs").insert({
+      actor_user_id: autoTarget.user_id,
+      action: "AUTO_LINK_TELEGRAM",
+      target_user_id: autoTarget.user_id,
+      detail: `tgId=${tgId}`,
+    });
+
+    return { techUser: autoTarget, availableUsernames: [] };
   }
-  return null;
+
+  const availableUsernames = (unlinkedTechs.length > 0 ? unlinkedTechs : techPool)
+    .map((u: any) => String(u.user_username || u.user_id || "").trim())
+    .filter(Boolean);
+
+  return { techUser: null, availableUsernames };
 }
 
 async function sendTelegramText(chatId: string, htmlText: string) {

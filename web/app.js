@@ -244,6 +244,32 @@ async function callSupabaseDirect_(action, payload) {
     var cfgMap = {};
     (boot[8].data || []).forEach(function (c) { cfgMap[c.config_key] = c.config_value; });
 
+    // หากเปิดในแอป LINE จริงและผู้ใช้เคยล็อกอินค้างเป็นรหัสจำลอง U111... ตอนยังไม่ได้ใส่ LIFF_ID ให้สลับมาเป็น LINE ID จริงอัตโนมัติ
+    if (!userRow && STATE.lineUserId && STATE.lineUserId !== 'U11111111111111111111111111111111') {
+      var devBoundRes = await sb
+        .from('Master_Users')
+        .select('*')
+        .eq('line_user_id', 'U11111111111111111111111111111111')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (devBoundRes.data) {
+        var updRes = await sb
+          .from('Master_Users')
+          .update({
+            line_user_id: STATE.lineUserId,
+            line_display_name: STATE.lineDisplayName || devBoundRes.data.line_display_name || '',
+            line_linked_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', devBoundRes.data.user_id)
+          .select('*')
+          .single();
+        if (updRes.data) {
+          userRow = updRes.data;
+        }
+      }
+    }
+
     if (!userRow) {
       return {
         bound: false,
@@ -415,6 +441,7 @@ async function callSupabaseDirect_(action, payload) {
       changed_via: 'LIFF',
       note: payload.cancel_reason || 'ผู้แจ้งยกเลิกรายการ'
     });
+    triggerBackgroundSheetSync_();
     return { ticket: cRes.data };
   }
 
@@ -441,6 +468,7 @@ async function callSupabaseDirect_(action, payload) {
       p_via: 'LIFF'
     });
     if (accRes.error) throw new Error(accRes.error.message);
+    triggerBackgroundSheetSync_();
     return {
       alreadyAccepted: Boolean(accRes.data && accRes.data.alreadyAccepted),
       ticket: accRes.data
@@ -521,6 +549,7 @@ async function callSupabaseDirect_(action, payload) {
       note: payload.cause_solution || payload.on_hold_reason || nextSt
     });
 
+    triggerBackgroundSheetSync_();
     return { ticket: Object.assign({}, cur, patch) };
   }
 
@@ -1167,6 +1196,15 @@ function removeBeforeImage(idx) {
   renderBeforeImagesPreview();
 }
 
+function triggerBackgroundSheetSync_() {
+  if (!STATE.apiUrl) return;
+  try {
+    fetch(STATE.apiUrl + '?action=syncFromSupabase&_t=' + Date.now(), { mode: 'no-cors' }).catch(function () {});
+  } catch (e) {
+    // ignore background sync error
+  }
+}
+
 async function handleCreateTicket(ev) {
   ev.preventDefault();
   if (STATE.beforeImages.length < 1) {
@@ -1189,8 +1227,13 @@ async function handleCreateTicket(ev) {
     var res = await callApi('createTicket', payload);
     var created = res.ticket;
 
+    // สั่งซิงค์ข้อมูลลง Google Sheets ในเบื้องหลังแบบไม่บล็อกหน้าเว็บ
+    triggerBackgroundSheetSync_();
+
     // ส่งข้อความเข้าแชท LINE OA เพื่อให้ Webhook ตอบกลับด้วย Flex Message ฟรี (ไม่เสียโควต้า Push)
-    if (window.liff && liff.isInClient()) {
+    var sentViaLiff = false;
+    var inLineClient = Boolean(window.liff && typeof liff.isInClient === 'function' && liff.isInClient());
+    if (inLineClient) {
       try {
         await liff.sendMessages([
           {
@@ -1198,8 +1241,34 @@ async function handleCreateTicket(ev) {
             text: 'แจ้งซ่อม #' + created.jtr_id
           }
         ]);
+        sentViaLiff = true;
       } catch (msgErr) {
         console.warn('liff.sendMessages warning:', msgErr);
+      }
+    }
+
+    // Fallback: หาก liff.sendMessages ไม่ทำงานแต่ผู้ใช้มี LINE User ID จริง ให้ส่งการ์ดใบรับเรื่องผ่าน Edge Function ทันที
+    if (
+      !sentViaLiff &&
+      STATE.supabaseUrl &&
+      STATE.lineUserId &&
+      STATE.lineUserId !== 'U11111111111111111111111111111111'
+    ) {
+      try {
+        await fetch(STATE.supabaseUrl + '/functions/v1/notify-event', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + STATE.supabaseAnonKey
+          },
+          body: JSON.stringify({
+            event: 'TICKET_CREATED_LINE_PUSH',
+            jtr_id: created.jtr_id,
+            line_user_id: STATE.lineUserId
+          })
+        });
+      } catch (pushErr) {
+        console.warn('Fallback LINE push warning:', pushErr);
       }
     }
 
@@ -1211,7 +1280,19 @@ async function handleCreateTicket(ev) {
     renderBeforeImagesPreview();
 
     showToast('ส่งใบแจ้งซ่อม ' + created.jtr_id + ' เรียบร้อยแล้ว!', 'success');
-    switchTab('myTickets');
+
+    // หากเปิดในแอป LINE ให้ปิดหน้าต่าง LIFF เพื่อกลับไปยังห้องแชท LINE OA ทันที
+    if (inLineClient) {
+      setTimeout(function () {
+        try {
+          liff.closeWindow();
+        } catch (closeErr) {
+          switchTab('myTickets');
+        }
+      }, 600);
+    } else {
+      switchTab('myTickets');
+    }
   } catch (err) {
     console.error(err);
   } finally {
