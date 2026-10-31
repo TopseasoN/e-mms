@@ -62,26 +62,23 @@
 
 ---
 
-## 3. ข้อมูลระบบจริง (IDs / URLs)
+## 3. ข้อมูลและการตั้งค่าระบบ (Configuration Reference)
 
-| รายการ | ค่า |
-|---|---|
-| Supabase **Project Reference** (Singapore) | `nzmdyjhbogbichusgqjh` |
-| Supabase **Project URL** | `https://nzmdyjhbogbichusgqjh.supabase.co` |
-| Apps Script **Script ID** | `1_gCIrGV1c5HL0lzXUSTsJl8fpmTvaj9jDNupNivhT_d4TlEIlrsjK87f` |
-| Web App **Deployment ID** (ใช้ ID นี้ตลอด ห้ามสร้างใหม่) | `AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk` |
-| **Web App / Webhook URL** (Fallback & Sheets Sync) | `https://script.google.com/macros/s/AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk/exec` |
-| Deployment version ล่าสุด | `@7` |
-| GitHub repo | https://github.com/TopseasoN/e-mms |
-| GitHub Pages (หน้าเว็บ LIFF Endpoint) | https://topseason.github.io/e-mms/web/ |
-| LINE Login Channel ID | `2012286335` |
-| LIFF ID | `2012286335-4EtoE0Pf` |
-| Google Drive โฟลเดอร์รูป (สำรอง) | `1VSmtUyahQ3XTytpap1IROfKO_jTTP-ez` |
-| Telegram Chat ID กลุ่มช่าง | `-1004317651111` |
-| Admin เริ่มต้น | username `thanawat.b` (USER0001, นายธนาวัฒน์ บุตรศรี) |
+> [!NOTE]
+> เพื่อความปลอดภัยและความเป็นส่วนตัว ข้อมูลไอดีเฉพาะขององค์กร (Project Reference, Deployment IDs, Webhook URLs, Chat IDs และข้อมูลผู้ดูแลระบบ) **ถูกแยกจัดเก็บไว้ในไฟล์ส่วนตัวเฉพาะในเครื่อง `PRIVATE_SYSTEM_INFO.md` (ซึ่งถูกใส่ไว้ใน `.gitignore` จะไม่ถูกส่งขึ้น GitHub สาธารณะ)**
 
-**Secrets** (ห้ามใส่ในโค้ดหรือในชีต):
-- ใน **Supabase Edge Function Secrets**: `TELEGRAM_BOT_TOKEN`, `LINE_CHANNEL_ACCESS_TOKEN`
+| รายการ | คำอธิบาย | ตำแหน่งจัดเก็บ / จัดการ |
+|---|---|---|
+| Supabase Project Reference / URL | สำหรับเชื่อมต่อฐานข้อมูลหลัก PostgreSQL & Storage | ดูใน `PRIVATE_SYSTEM_INFO.md` และ `web/config.js` |
+| Apps Script Script ID / Deployment ID | สำหรับ Webhook & Google Sheets Sync | ดูใน `PRIVATE_SYSTEM_INFO.md` และ `.clasp.json` |
+| Web App / Webhook URL | ลิงก์ API สำหรับ Google Sheets Sync | ดูใน `PRIVATE_SYSTEM_INFO.md` |
+| LINE Login Channel ID & LIFF ID | สำหรับเปิดหน้าเว็บแจ้งซ่อมผ่าน LINE OA | บันทึกในตาราง `Sys_Config` (`LIFF_ID`) และ `web/config.js` |
+| Google Drive โฟลเดอร์รูป (สำรอง) | โฟลเดอร์ Google Drive สำรอง | บันทึกในตาราง `Sys_Config` (`DRIVE_ROOT_FOLDER_ID`) |
+| Telegram Chat ID กลุ่มช่าง | กลุ่มแจ้งเตือนงานซ่อมสำหรับทีมช่าง | บันทึกในตาราง `Sys_Config` (`TELEGRAM_CHAT_ID`) และ Supabase Secrets |
+| ผู้ดูแลระบบเริ่มต้น (Admin) | บัญชีผู้ดูแลระบบหลักของระบบ | บันทึกในตาราง `Master_Users` (`USER0001`) |
+
+**Secrets & Tokens (ห้ามใส่ในโค้ดหรือในชีตเด็ดขาด):**
+- ใน **Supabase Edge Function Secrets**: `TELEGRAM_BOT_TOKEN`, `LINE_CHANNEL_ACCESS_TOKEN`, `TELEGRAM_CHAT_ID`
 - ใน **Apps Script → Project Settings → Script Properties**:
   - `SUPABASE_URL`, `SUPABASE_KEY` (สำหรับดึงข้อมูลมารายงานใน Google Sheets)
   - `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_LOGIN_CHANNEL_ID`, `TELEGRAM_BOT_TOKEN`
@@ -264,7 +261,7 @@ npx supabase functions deploy line-webhook --no-verify-jwt
 ```zsh
 for f in apps-script/*.js; do node --check "$f"; done      # ตรวจ syntax
 clasp push --force                                          # อัปโหลด
-clasp deploy -i AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk -d "e-MMS API, Webhook & Supabase Sync"
+clasp deploy -i <DEPLOYMENT_ID> -d "e-MMS API, Webhook & Supabase Sync"
 ```
 
 ### 3. Frontend (GitHub Pages)
