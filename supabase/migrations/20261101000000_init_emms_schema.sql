@@ -571,28 +571,53 @@ ALTER TABLE public."Sys_NotificationLogs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."Sys_AuditLogs" ENABLE ROW LEVEL SECURITY;
 
 -- นโยบายอ่าน/เขียนสำหรับ Client (ควบคุมสิทธิ์ผ่าน Application Layer + RPC + Edge Functions)
-DO $$
-DECLARE
-    t TEXT;
-BEGIN
-    FOREACH t IN ARRAY ARRAY[
-        'Master_Departments', 'Master_Buildings', 'Master_Locations',
-        'Master_Rooms', 'Master_Categories', 'Master_Statuses', 'Sys_Config'
-    ]
-    LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "Allow public select %I" ON public.%I', t, t);
-        EXECUTE format('CREATE POLICY "Allow public select %I" ON public.%I FOR SELECT USING (true)', t, t);
-    END LOOP;
 
-    FOREACH t IN ARRAY ARRAY[
-        'Master_Users', 'Trans_JobTickets', 'Trans_Assignments',
-        'Trans_Attachments', 'Trans_StatusLogs', 'Sys_NotificationLogs', 'Sys_AuditLogs'
-    ]
-    LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "Allow client access %I" ON public.%I', t, t);
-        EXECUTE format('CREATE POLICY "Allow client access %I" ON public.%I FOR ALL USING (true) WITH CHECK (true)', t, t);
-    END LOOP;
-END $$;
+-- 10.1 Master Data & Sys_Config: เปิดให้อ่านได้ทุกคน (Public Read)
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Departments";
+CREATE POLICY "Allow public read" ON public."Master_Departments" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Buildings";
+CREATE POLICY "Allow public read" ON public."Master_Buildings" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Locations";
+CREATE POLICY "Allow public read" ON public."Master_Locations" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Rooms";
+CREATE POLICY "Allow public read" ON public."Master_Rooms" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Categories";
+CREATE POLICY "Allow public read" ON public."Master_Categories" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Master_Statuses";
+CREATE POLICY "Allow public read" ON public."Master_Statuses" FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Allow public read" ON public."Sys_Config";
+CREATE POLICY "Allow public read" ON public."Sys_Config" FOR SELECT USING (true);
+
+-- 10.2 User, Transaction & System Logs: อนุญาตให้ Client เข้าถึงได้
+DROP POLICY IF EXISTS "Allow client all" ON public."Master_Users";
+CREATE POLICY "Allow client all" ON public."Master_Users" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Trans_JobTickets";
+CREATE POLICY "Allow client all" ON public."Trans_JobTickets" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Trans_Assignments";
+CREATE POLICY "Allow client all" ON public."Trans_Assignments" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Trans_Attachments";
+CREATE POLICY "Allow client all" ON public."Trans_Attachments" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Trans_StatusLogs";
+CREATE POLICY "Allow client all" ON public."Trans_StatusLogs" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Sys_Counters";
+CREATE POLICY "Allow client all" ON public."Sys_Counters" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Sys_NotificationLogs";
+CREATE POLICY "Allow client all" ON public."Sys_NotificationLogs" FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow client all" ON public."Sys_AuditLogs";
+CREATE POLICY "Allow client all" ON public."Sys_AuditLogs" FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================================================
 -- 11. SEED DATA (ข้อมูลตั้งต้นครบทั้งระบบ)
