@@ -66,6 +66,8 @@
 
 | รายการ | ค่า |
 |---|---|
+| Supabase **Project Reference** (Singapore) | `nzmdyjhbogbichusgqjh` |
+| Supabase **Project URL** | `https://nzmdyjhbogbichusgqjh.supabase.co` |
 | Apps Script **Script ID** | `1_gCIrGV1c5HL0lzXUSTsJl8fpmTvaj9jDNupNivhT_d4TlEIlrsjK87f` |
 | Web App **Deployment ID** (ใช้ ID นี้ตลอด ห้ามสร้างใหม่) | `AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk` |
 | **Web App / Webhook URL** (Fallback & Sheets Sync) | `https://script.google.com/macros/s/AKfycbxg71MIIDI5RtmBiM-dl1NZLjNFnbc6rWO46OyZ9GdVam39udnPFcd0zqQzezpxNUk/exec` |
@@ -145,16 +147,16 @@ e-MMS_ระบบบริหารจัดการงานซ่อมบ�
 | 4 | โครงสร้าง Supabase SQL Migration + Edge Functions (`notify-event`, `telegram-webhook`, `line-webhook`) | ✅ เสร็จ |
 | 5 | คู่มือตั้งค่า (`SETUP_GUIDE.md`) รวม Rich Menu และการตั้งค่า Supabase | ✅ เสร็จ |
 | 6 | ติดตั้ง Edge Functions, ตั้งค่า Secret Tokens, เชื่อมต่อกลุ่ม Telegram และ LINE OA สำเร็จ 100% | ✅ เสร็จ |
-| 7 | **ทดสอบใช้งานจริงหน้างาน (UAT)** | 🟡 **พร้อมทดสอบ** |
+| 7 | **ทดสอบใช้งานจริงหน้างาน (UAT)** (แจ้งซ่อม, รับงาน, ปิดงาน, ซิงค์ลง Google Sheets, ส่ง Telegram/LINE) | ✅ **ผ่านการทดสอบสมบูรณ์** |
 
-**สิ่งที่ต้องดำเนินการต่อ (Action Items สำหรับเจ้าของ):**
-- [x] รัน `git push` เพื่ออัปเดตโค้ดล่าสุดขึ้น GitHub Pages
-- [x] สร้างโปรเจกต์บน Supabase (Region: Singapore) แล้วรันไฟล์ [`supabase/migrations/20261101000000_init_emms_schema.sql`](supabase/migrations/20261101000000_init_emms_schema.sql) ใน SQL Editor
-- [x] นำค่า `SUPABASE_URL` และ `SUPABASE_ANON_KEY` มาใส่ใน [`web/config.js`](web/config.js) และใส่ใน Script Properties ของ Apps Script
-- [x] Deploy Supabase Edge Functions (`notify-event`, `telegram-webhook`, `line-webhook`) พร้อมผูก Secrets
-- [x] เชื่อมต่อกลุ่ม Telegram ทีมช่าง และตั้งค่า LINE Messaging API Webhook
-- [ ] เปิดใช้งาน Auto-Sync ทุก 1 ชั่วโมงจากเมนู `⚡ e-MMS (Supabase Sync)` บน Google Sheets (Keep-Alive)
-- [ ] ทดสอบแจ้งซ่อมผ่านหน้าเว็บ `https://topseason.github.io/e-mms/web/?dev=1` ตรวจสอบข้อความเข้า Telegram และกดรับงาน
+**สถานะการทำงานของระบบปัจจุบัน:**
+- [x] หน้าเว็บ LIFF (`topseason.github.io/e-mms/web/`) เชื่อมต่อ Supabase ตรง บันทึกข้อมูลและรูปภาพใน **< 1–2 วินาที**
+- [x] ตาราง `Trans_JobTickets` สร้างรหัสใบงาน `JTR-YYMM-NNN` อัตโนมัติจาก PostgreSQL Trigger
+- [x] ระบบ Decoupled Trigger ยิงแจ้งเตือนการ์ดใบงานพร้อมปุ่ม "รับงาน" เข้ากลุ่ม Telegram ทันที
+- [x] ช่าง/แอดมินสามารถกดปุ่ม "รับงาน" บน Telegram ได้ทันที พร้อมระบบ Auto-Link บัญชีอัตโนมัติ
+- [x] เมื่อแจ้งซ่อมผ่าน LINE OA ระบบส่งการ์ดสรุปใบรับเรื่อง และสั่งปิดหน้าต่าง LIFF กลับเข้าห้องแชทอัตโนมัติ
+- [x] การกดซิงค์ข้อมูลจาก Supabase ลง Google Sheets ทำงานได้ครบทั้ง 15 ตารางอย่างถูกต้อง (พร้อมระบบ Auto-Sync ในเบื้องหลังทุกครั้งที่มี Transaction ใหม่)
+- [ ] เจ้าของคลิกเปิดใช้งาน Auto-Sync รายชั่วโมง `⏰ เปิด Auto-Sync ทุก 1 ชั่วโมง (Keep-Alive)` บน Google Sheets (ทำครั้งเดียวเพื่อป้องกัน Supabase Pause อัตโนมัติหลัง 7 วัน)
 
 ---
 
@@ -288,17 +290,18 @@ git add -A && git commit -m "..." && git push
 |---|---|
 | 2569-10-29 | วิเคราะห์ข้อมูลเก่า (630 งาน, 44 สถานที่, ช่าง 5 คน, 4 สถานะ) · สัมภาษณ์ `/grill-me` 20 ข้อ · ออกแบบ schema 15 ชีต · สร้าง `SetupDatabase.js`, `export_schema.js`, CSV, `DATABASE.md`, `BLUEPRINT.md`, `SETUP_GUIDE.md` |
 | 2569-10-30 | เจ้าของตั้งค่า LINE OA/LIFF/Telegram/Script Properties · เขียน backend ครบ 8 ไฟล์ + clasp push + deploy · เขียน frontend `web/` · ขึ้น GitHub Pages (`topseason.github.io/e-mms`) · เพิ่มคู่มือ Rich Menu + `?tab=` · แก้ bug Drive folder ID มี `?lfhs=2` (Deploy `@5`) |
-| 2569-11-01 | สร้าง `README.md` + `AGENTS.md` · **สัมภาษณ์ `/grill-me` รอบที่ 2 เพื่อย้ายสถาปัตยกรรมหลักสู่ Supabase (Sub-second Latency < 1s)** · วิเคราะห์สถิติรูปภาพจริงจากระบบเดิม (851 ภาพ ตั้งแต่ 1/12/2567 – 29/10/2569 ใช้พื้นที่เพียง 89.9 MB → โควต้าฟรี 1 GB บน Supabase Storage ใช้ได้ ~20 ปี) · สร้าง `supabase/migrations/20261101000000_init_emms_schema.sql`, Edge Functions 3 ตัว (`notify-event`, `telegram-webhook`, `line-webhook`), สร้าง `apps-script/SupabaseSync.js` สำหรับซิงค์ข้อมูลลง Google Sheets แบบ Read-Only ทุก 1 ชม. + ปุ่มเมนูรีเฟรช · อัปเกรด `web/app.js` และ `web/config.js` ให้เชื่อมต่อ Supabase ตรง · **Deploy Supabase Edge Functions 3 ตัวสำเร็จ, ตั้งค่า Secret Tokens, แก้บั๊ก Google Sheets Sync URL `/rest/v1` ซ้ำ (Deploy `@7`), ตั้งค่า `LIFF_ID: 2012286335-4EtoE0Pf` พร้อมปิดหน้าต่าง LIFF อัตโนมัติหลังส่งงาน และปรับปรุงระบบ Auto-Link Telegram ช่าง** |
+| 2569-11-01 | สร้าง `README.md` + `AGENTS.md` · **สัมภาษณ์ `/grill-me` รอบที่ 2 เพื่อย้ายสถาปัตยกรรมหลักสู่ Supabase (Sub-second Latency < 1s)** · วิเคราะห์สถิติรูปภาพจริงจากระบบเดิม (851 ภาพ ตั้งแต่ 1/12/2567 – 29/10/2569 ใช้พื้นที่เพียง 89.9 MB → โควต้าฟรี 1 GB บน Supabase Storage ใช้ได้ ~20 ปี) · สร้าง `supabase/migrations/20261101000000_init_emms_schema.sql`, Edge Functions 3 ตัว (`notify-event`, `telegram-webhook`, `line-webhook`), สร้าง `apps-script/SupabaseSync.js` สำหรับซิงค์ข้อมูลลง Google Sheets แบบ Read-Only ทุก 1 ชม. + ปุ่มเมนูรีเฟรช · อัปเกรด `web/app.js` และ `web/config.js` ให้เชื่อมต่อ Supabase ตรง · **Deploy Supabase Edge Functions 3 ตัวสำเร็จ, ตั้งค่า Secret Tokens, แก้บั๊ก Google Sheets Sync URL `/rest/v1` ซ้ำ (Deploy `@7`), ตั้งค่า `LIFF_ID: 2012286335-4EtoE0Pf` พร้อมปิดหน้าต่าง LIFF อัตโนมัติหลังส่งงาน, ปรับปรุงระบบ Auto-Link Telegram ช่าง และทดสอบ UAT ครบวงจรสำเร็จ 100% (ใบงาน JTR-6911-001 ถึง JTR-6911-004)** |
 
 ---
 
 ## 13. งานที่เหลือ / ไอเดียเฟสถัดไป
 
-**ต้องทำ:**
+**ต้องทำ (ก่อนเปิดใช้งานจริงกับผู้ใช้ทั่วไป):**
 - [x] `git push` โค้ดทั้งหมดขึ้น GitHub (`main`)
 - [x] สร้างโปรเจกต์ Supabase (Region: Singapore) และรัน `supabase/migrations/20261101000000_init_emms_schema.sql`
 - [x] กรอก `SUPABASE_URL` และ `SUPABASE_ANON_KEY` ใน `web/config.js` และใน Apps Script `Script Properties`
-- [x] ทดสอบการซิงค์ข้อมูลจาก Supabase ลง Google Sheets สำเร็จ (8.06 วินาที)
 - [x] Deploy Supabase Edge Functions (`notify-event`, `telegram-webhook`, `line-webhook`) และเชื่อมต่อ Telegram Bot / LINE OA
-- [ ] เปิดใช้งาน Auto-Sync ทุก 1 ชั่วโมงจากเมนู `⚡ e-MMS (Supabase Sync)` บน Google Sheets (Keep-Alive)
-- [ ] ทดสอบ UAT ครบวงจร (แจ้งซ่อม < 1 วินาที, แจ้งเตือน Telegram, กดรับงาน, ปิดงาน, ซิงค์รายงานลง Google Sheets)
+- [x] ทดสอบการซิงค์ข้อมูลจาก Supabase ลง Google Sheets ครบทั้ง 15 ตาราง
+- [x] ทดสอบ UAT ครบวงจร (แจ้งซ่อม < 1 วินาที, แจ้งเตือน Telegram, กดรับงาน, ปิดงาน, ซิงค์รายงานลง Google Sheets)
+- [ ] คลิกเปิดใช้งาน Auto-Sync ทุก 1 ชั่วโมงจากเมนู `⚡ e-MMS (Supabase Sync)` บน Google Sheets (Keep-Alive)
+- [ ] นำเข้ารายชื่อช่าง / อาจารย์ / เจ้าหน้าที่ / นักศึกษา ลงตาราง `Master_Users` ใน Supabase Table Editor หรือผ่านชีต `Master_Users` เมื่อพร้อมเปิดใช้งานจริง
