@@ -1,0 +1,7 @@
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.log
+
+# ข้อมูลฐานข้อมูลที่มีข้อมูลส่วนบุคคล/รหัสผ่านจริง (ไม่ควรขึ้น Public GitHub)
+Databases/

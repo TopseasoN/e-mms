@@ -287,9 +287,13 @@ function onSessionReady(session) {
 
   populateCreateFormDropdowns();
 
-  // หากเปิดมาจากลิงก์ ?jtr=JTR-... ให้เปิดไปที่หน้าคิวช่างหรืองานของฉัน
-  var jtrParam = new URLSearchParams(window.location.search).get('jtr');
-  if (jtrParam && isTechOrAdmin) {
+  // หากเปิดมาจากลิงก์ ?jtr=JTR-... หรือ ?tab=... ให้เปิดไปที่แท็บที่ต้องการทันที
+  var searchParams = new URLSearchParams(window.location.search);
+  var jtrParam = searchParams.get('jtr');
+  var tabParam = searchParams.get('tab');
+  if (tabParam && ['create', 'myTickets', 'techQueue', 'adminDashboard', 'adminUsers'].indexOf(tabParam) !== -1) {
+    switchTab(tabParam);
+  } else if (jtrParam && isTechOrAdmin) {
     switchTab('techQueue');
   } else if (jtrParam) {
     switchTab('myTickets');
