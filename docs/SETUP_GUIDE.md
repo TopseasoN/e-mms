@@ -258,3 +258,45 @@ Rich Menu คือปุ่มกดเมนูขนาดใหญ่ด้�
        - วางลิงก์: `https://liff.line.me/<ใส่_LIFF_ID_ของคุณ>?tab=myTickets`
        - ป้ายแอคชัน (Action label): พิมพ์ `ติดตามสถานะงานซ่อม`
 6. กดปุ่มสีเขียว **`บันทึก (Save)`** ด้านล่างสุด — เมนูจะขึ้นแสดงในห้องแชท LINE OA ของทุกคนทันที!
+
+---
+
+## ขั้นตอนที่ 8: วิธีตั้งค่า Supabase (Sub-Second Latency Architecture)
+
+เพื่อลดเวลาตอบสนองหน้าเว็บ LIFF จาก 5–10 วินาที ให้เหลือ **< 1 วินาที (Sub-second)** และให้ Google Sheets ทำหน้าที่เป็น Read-Only Consumer ตลอด 24/7 ให้ทำตามขั้นตอนนี้:
+
+### 8.1 สร้างโปรเจกต์ Supabase และรัน SQL Schema + Seed
+1. เข้าไปที่ [Supabase Dashboard](https://supabase.com/dashboard) → กด **New Project**
+   - **Name:** `e-mms`
+   - **Region:** เลือก **`Southeast Asia (Singapore)`** (`ap-southeast-1`) เพื่อความเร็วสูงสุดในประเทศไทย
+2. เมื่อโปรเจกต์สร้างเสร็จแล้ว ไปที่เมนูซ้าย **SQL Editor** → กด **New query**
+3. คัดลอกโค้ดทั้งหมดจากไฟล์ [`supabase/migrations/20261101000000_init_emms_schema.sql`](file:///Users/mek/e-MMS_%E0%B8%A3%E0%B8%B0%E0%B8%9A%E0%B8%9A%E0%B8%9A%E0%B8%A3%E0%B8%B4%E0%B8%AB%E0%B8%B2%E0%B8%A3%E0%B8%88%E0%B8%B1%E0%B8%94%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B8%8B%E0%B9%88%E0%B8%AD%E0%B8%A1%E0%B8%9A%E0%B8%B3%E0%B8%A3%E0%B8%B8%E0%B8%87%E0%B8%AD%E0%B8%AD%E0%B8%99%E0%B9%84%E0%B8%A5%E0%B8%99%E0%B9%8C/supabase/migrations/20261101000000_init_emms_schema.sql) ไปวางแล้วกด **Run**
+   - สคริปต์จะสร้างครบทั้ง **15 ตาราง**, **Storage Bucket (`ticket-attachments`)**, **Atomic Ticket ID Trigger (`JTR-YYMM-NNN`)**, **RPC Functions**, และ **ข้อมูลตั้งต้น (Seed Data)** ให้ทันที
+4. ไปที่เมนู **Table Editor** → เลือกตาราง **`Sys_Config`** แล้วกรอกค่า:
+   - `LIFF_ID`: ใส่ LIFF ID ของคุณ
+   - `TELEGRAM_CHAT_ID`: ใส่ Chat ID กลุ่มช่าง (ตัวเลขติดลบ)
+   - `SUPABASE_EDGE_NOTIFY_URL`: `https://<PROJECT-REF>.supabase.co/functions/v1/notify-event`
+
+### 8.2 Deploy Supabase Edge Functions (Decoupled Telegram & LINE Notifications)
+```zsh
+# ติดตั้งและ Login Supabase CLI
+npx supabase login
+npx supabase link --project-ref <PROJECT-REF>
+
+# ตั้งค่า Secrets สำหรับส่งแจ้งเตือน Telegram และ LINE
+npx supabase secrets set TELEGRAM_BOT_TOKEN="<TOKEN>" LINE_CHANNEL_ACCESS_TOKEN="<TOKEN>"
+
+# Deploy ทั้ง 3 Edge Functions
+npx supabase functions deploy notify-event --no-verify-jwt
+npx supabase functions deploy telegram-webhook --no-verify-jwt
+npx supabase functions deploy line-webhook --no-verify-jwt
+```
+
+### 8.3 เชื่อมต่อหน้าเว็บ LIFF (`web/config.js`) และ Google Sheets Sync
+1. ไปที่ Supabase Dashboard → **Project Settings** → **API** คัดลอก **Project URL** และ **`anon` `public` key**
+2. นำไปใส่ในไฟล์ [`web/config.js`](file:///Users/mek/e-MMS_%E0%B8%A3%E0%B8%B0%E0%B8%9A%E0%B8%9A%E0%B8%9A%E0%B8%A3%E0%B8%B4%E0%B8%AB%E0%B8%B2%E0%B8%A3%E0%B8%88%E0%B8%B1%E0%B8%94%E0%B8%81%E0%B8%B2%E0%B8%A3%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B8%8B%E0%B9%88%E0%B8%AD%E0%B8%A1%E0%B8%9A%E0%B8%B3%E0%B8%A3%E0%B8%B8%E0%B8%87%E0%B8%AD%E0%B8%AD%E0%B8%99%E0%B9%84%E0%B8%A5%E0%B8%99%E0%B9%8C/web/config.js) (`SUPABASE_URL` และ `SUPABASE_ANON_KEY`)
+3. สำหรับ **Google Sheets (Read-Only Consumer Sync)**:
+   - เปิด Apps Script → **Project Settings** → **Script Properties** เพิ่ม:
+     - `SUPABASE_URL` = `https://<PROJECT-REF>.supabase.co`
+     - `SUPABASE_KEY` = `<service_role_key หรือ anon_key>`
+   - เปิดไฟล์ Google Sheets ขึ้นมาใหม่ จะพบเมนู **`⚡ e-MMS (Supabase Sync)`** ด้านบน สามารถกด **`🔄 รีเฟรชข้อมูลล่าสุดจาก Supabase ทันที`** หรือกด **`⏰ เปิด Auto-Sync ทุก 1 ชั่วโมง (Keep-Alive)`** ได้ทันที!

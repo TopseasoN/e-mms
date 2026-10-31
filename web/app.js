@@ -1,10 +1,20 @@
 /**
- * e-MMS : Frontend Application Logic (LINE LIFF + GAS API)
+ * e-MMS : Frontend Application Logic (LINE LIFF + Direct Supabase + GAS Fallback)
  * ---------------------------------------------------------------------------
+ * รองรับการเชื่อมต่อ 2 โหมดอัตโนมัติ:
+ *   1. Direct Supabase Mode (Sub-second Latency < 1s):
+ *      เมื่อตั้งค่า SUPABASE_URL + SUPABASE_ANON_KEY หน้าเว็บจะอ่าน/เขียนผ่าน PostgREST
+ *      และอัปโหลดไฟล์ Binary ตรงเข้า Supabase Storage ทันที
+ *   2. GAS Fallback Mode:
+ *      หากยังไม่ได้ระบุค่า Supabase ระบบจะสลับไปเรียก Google Apps Script Web App เดิมอัตโนมัติ
  */
 
 var STATE = {
   apiUrl: '',
+  supabaseUrl: '',
+  supabaseAnonKey: '',
+  supabaseBucket: 'ticket-attachments',
+  supabaseClient: null,
   liffId: '',
   idToken: '',
   lineUserId: '',
@@ -79,13 +89,640 @@ function esc(str) {
 }
 
 /* ========================================================================== */
-/*  API CLIENT (ใช้ text/plain เพื่อไม่ให้ติด CORS Preflight ของ Apps Script) */
+/*  API CLIENT (Direct Supabase Sub-Second Mode + GAS Fallback)               */
 /* ========================================================================== */
 
+function formatThaiDateClient_(isoOrDate) {
+  if (!isoOrDate) return '-';
+  var d = (isoOrDate instanceof Date) ? isoOrDate : new Date(isoOrDate);
+  if (isNaN(d.getTime())) return String(isoOrDate);
+  var fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  var parts = {};
+  fmt.formatToParts(d).forEach(function (p) { parts[p.type] = p.value; });
+  var yearBE = Number(parts.year) + 543;
+  return parts.day + '/' + parts.month + '/' + yearBE + ' ' + parts.hour + ':' + parts.minute;
+}
+
+function dataUrlToBlob_(dataUrl) {
+  var arr = String(dataUrl).split(',');
+  var mimeMatch = arr[0].match(/:(.*?);/);
+  var mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  var bstr = atob(arr[1] || '');
+  var n = bstr.length;
+  var u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+}
+
+async function uploadImageToSupabaseStorage_(dataUrl, jtrId, attType, seq) {
+  var sb = STATE.supabaseClient;
+  var now = new Date();
+  var yearBE = now.getFullYear() + 543;
+  var mm = String(now.getMonth() + 1).padStart(2, '0');
+  var folder = yearBE + '-' + mm;
+  var storagePath = folder + '/' + jtrId + '_' + attType + '_' + seq + '_' + Date.now() + '.jpg';
+  var blob = dataUrlToBlob_(dataUrl);
+
+  var upRes = await sb.storage
+    .from(STATE.supabaseBucket)
+    .upload(storagePath, blob, { contentType: 'image/jpeg', upsert: true });
+
+  if (upRes.error) throw new Error('อัปโหลดรูปไม่สำเร็จ: ' + upRes.error.message);
+
+  var pub = sb.storage.from(STATE.supabaseBucket).getPublicUrl(storagePath);
+  return {
+    storagePath: storagePath,
+    fileUrl: pub.data.publicUrl
+  };
+}
+
+async function enrichTicketsClient_(rows) {
+  if (!rows || !rows.length) return [];
+  var sb = STATE.supabaseClient;
+  var jtrIds = rows.map(function (r) { return r.jtr_id; });
+
+  var results = await Promise.all([
+    sb.from('Trans_Attachments').select('*').in('jtr_id', jtrIds).order('seq', { ascending: true }),
+    sb.from('Trans_Assignments').select('*').in('jtr_id', jtrIds),
+    sb.from('Master_Users').select('user_id, user_name, line_user_id')
+  ]);
+
+  var atts = results[0].data || [];
+  var asgs = results[1].data || [];
+  var users = results[2].data || [];
+
+  var userMap = {};
+  users.forEach(function (u) { userMap[u.user_id] = u; });
+
+  var bldMap = {};
+  (STATE.master.buildings || []).forEach(function (b) { bldMap[b.bld_id] = b.bld_name; });
+
+  var locMap = {};
+  (STATE.master.locations || []).forEach(function (l) { locMap[l.loc_id] = l.loc_name; });
+
+  var catMap = {};
+  (STATE.master.categories || []).forEach(function (c) { catMap[c.cat_id] = c; });
+
+  var stMap = {};
+  (STATE.master.statuses || []).forEach(function (s) { stMap[s.status_code] = s; });
+
+  var attByJtr = {};
+  atts.forEach(function (a) {
+    if (!attByJtr[a.jtr_id]) attByJtr[a.jtr_id] = { BEFORE: [], AFTER: [] };
+    var bucket = a.att_type === 'AFTER' ? 'AFTER' : 'BEFORE';
+    attByJtr[a.jtr_id][bucket].push(a);
+  });
+
+  var asgByJtr = {};
+  asgs.forEach(function (asg) {
+    if (!asgByJtr[asg.jtr_id]) asgByJtr[asg.jtr_id] = [];
+    var u = userMap[asg.tech_id];
+    asgByJtr[asg.jtr_id].push({
+      asg_id: asg.asg_id,
+      tech_id: asg.tech_id,
+      tech_name: u ? u.user_name : asg.tech_id,
+      is_first_accepter: Boolean(asg.is_first_accepter)
+    });
+  });
+
+  return rows.map(function (r) {
+    var catAct = catMap[r.cat_id_actual || r.cat_id_reported] || { main_category: '', sub_category: '' };
+    var st = stMap[r.status] || { status_label_th: r.status, status_color: '#9E9E9E', is_final: false };
+    var myAtts = attByJtr[r.jtr_id] || { BEFORE: [], AFTER: [] };
+    var myAsgs = asgByJtr[r.jtr_id] || [];
+    var firstTech = r.first_accepted_by ? userMap[r.first_accepted_by] : null;
+
+    return Object.assign({}, r, {
+      created_at_th: formatThaiDateClient_(r.created_at),
+      first_accepted_at_th: formatThaiDateClient_(r.first_accepted_at),
+      finished_at_th: formatThaiDateClient_(r.finished_at),
+      bld_name: bldMap[r.bld_id] || r.bld_id,
+      loc_name: locMap[r.loc_id] || r.loc_id,
+      main_category: catAct.main_category,
+      sub_category: catAct.sub_category,
+      status_label_th: st.status_label_th,
+      status_color: st.status_color,
+      is_final: Boolean(st.is_final),
+      first_accepted_by_name: firstTech ? firstTech.user_name : '',
+      images_before: myAtts.BEFORE,
+      images_after: myAtts.AFTER,
+      assignments: myAsgs,
+      assigned_names: myAsgs.map(function (a) { return a.tech_name; }).join(', ')
+    });
+  });
+}
+
+async function callSupabaseDirect_(action, payload) {
+  var sb = STATE.supabaseClient;
+  payload = payload || {};
+
+  if (action === 'getSession') {
+    var boot = await Promise.all([
+      sb.from('Master_Users').select('*').eq('line_user_id', STATE.lineUserId).eq('is_active', true).maybeSingle(),
+      sb.from('Master_Departments').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      sb.from('Master_Buildings').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      sb.from('Master_Locations').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      sb.from('Master_Rooms').select('*').eq('is_active', true),
+      sb.from('Master_Categories').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      sb.from('Master_Statuses').select('*').order('sort_order', { ascending: true }),
+      sb.from('Master_Users').select('user_id, user_name, user_role').eq('is_active', true).in('user_role', ['technician', 'admin']),
+      sb.from('Sys_Config').select('config_key, config_value')
+    ]);
+
+    var userRow = boot[0].data;
+    var depts = boot[1].data || [];
+    var cfgMap = {};
+    (boot[8].data || []).forEach(function (c) { cfgMap[c.config_key] = c.config_value; });
+
+    if (!userRow) {
+      return {
+        bound: false,
+        lineUserId: STATE.lineUserId,
+        lineDisplayName: STATE.lineDisplayName,
+        config: cfgMap
+      };
+    }
+
+    var deptObj = depts.find(function (d) { return d.dept_id === userRow.dept_id; }) || { dept_name: '', division_name: '' };
+    var sanitizedUser = {
+      user_id: userRow.user_id,
+      user_username: userRow.user_username || '',
+      user_name: userRow.user_name || '',
+      user_phone: userRow.user_phone || '',
+      dept_id: userRow.dept_id || '',
+      dept_name: deptObj.dept_name,
+      division_name: deptObj.division_name,
+      user_role: userRow.user_role || 'user',
+      line_user_id: userRow.line_user_id || '',
+      line_display_name: userRow.line_display_name || '',
+      telegram_user_id: userRow.telegram_user_id || ''
+    };
+
+    return {
+      bound: true,
+      user: sanitizedUser,
+      master: {
+        departments: depts,
+        buildings: boot[2].data || [],
+        locations: boot[3].data || [],
+        rooms: boot[4].data || [],
+        categories: boot[5].data || [],
+        statuses: boot[6].data || [],
+        technicians: boot[7].data || []
+      },
+      config: cfgMap
+    };
+  }
+
+  if (action === 'bindLine') {
+    var bindRes = await sb.rpc('rpc_bind_line_account', {
+      p_username: payload.username || '',
+      p_password: payload.password || '',
+      p_line_user_id: STATE.lineUserId,
+      p_line_display_name: STATE.lineDisplayName || '',
+      p_phone: payload.phone || ''
+    });
+    if (bindRes.error) throw new Error(bindRes.error.message);
+    return await callSupabaseDirect_('getSession', {});
+  }
+
+  if (!STATE.user) throw new Error('UNAUTHORIZED_UNBOUND');
+
+  if (action === 'checkDuplicate') {
+    var openStatuses = ['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'];
+    var qRes = await sb
+      .from('Trans_JobTickets')
+      .select('jtr_id, room, cat_id_reported, cat_id_actual, description, status, created_at')
+      .eq('bld_id', payload.bld_id)
+      .eq('loc_id', payload.loc_id)
+      .in('status', openStatuses)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    var roomFilter = String(payload.room || '').trim().toLowerCase();
+    var matches = (qRes.data || []).filter(function (r) {
+      var rRoom = String(r.room || '').trim().toLowerCase();
+      if (roomFilter && rRoom && rRoom !== roomFilter) return false;
+      return true;
+    }).slice(0, 5);
+
+    var enrichedDups = await enrichTicketsClient_(matches);
+    return { duplicates: enrichedDups };
+  }
+
+  if (action === 'createTicket') {
+    var phone = String(payload.requester_phone || STATE.user.user_phone || '').trim();
+    if (phone && phone !== STATE.user.user_phone) {
+      await sb.from('Master_Users').update({ user_phone: phone, updated_at: new Date().toISOString() }).eq('user_id', STATE.user.user_id);
+      STATE.user.user_phone = phone;
+    }
+
+    // 1. บันทึกใบงานลง Trans_JobTickets (Trigger ใน Postgres ออกรหัส JTR-YYMM-NNN อัตโนมัติ < 5ms)
+    var insRes = await sb.from('Trans_JobTickets').insert({
+      requester_id: STATE.user.user_id,
+      requester_name: STATE.user.user_name,
+      requester_phone: phone,
+      requester_dept: STATE.user.dept_name || '',
+      requester_division: STATE.user.division_name || '',
+      bld_id: payload.bld_id,
+      loc_id: payload.loc_id,
+      room: payload.room || '',
+      cat_id_reported: payload.cat_id_reported,
+      cat_id_actual: payload.cat_id_reported,
+      description: payload.description,
+      status: 'PENDING'
+    }).select('*').single();
+
+    if (insRes.error) throw new Error(insRes.error.message);
+    var createdTicket = insRes.data;
+    var jtrId = createdTicket.jtr_id;
+
+    // 2. อัปโหลดรูปภาพ BEFORE 1-3 รูปแบบ Parallel เข้า Supabase Storage
+    var imgs = (payload.images || []).slice(0, 3);
+    var uploadedList = await Promise.all(imgs.map(function (dataUrl, idx) {
+      return uploadImageToSupabaseStorage_(dataUrl, jtrId, 'BEFORE', idx + 1);
+    }));
+
+    var attRows = uploadedList.map(function (up, idx) {
+      return {
+        jtr_id: jtrId,
+        att_type: 'BEFORE',
+        seq: idx + 1,
+        drive_file_id: up.storagePath,
+        file_url: up.fileUrl,
+        uploaded_by: STATE.user.user_id
+      };
+    });
+
+    await Promise.all([
+      sb.from('Trans_Attachments').insert(attRows),
+      sb.from('Trans_StatusLogs').insert({
+        jtr_id: jtrId,
+        from_status: '',
+        to_status: 'PENDING',
+        changed_by: STATE.user.user_id,
+        changed_via: 'LIFF',
+        note: 'สร้างใบงานแจ้งซ่อมใหม่'
+      })
+    ]);
+
+    return { ticket: createdTicket };
+  }
+
+  if (action === 'listMyTickets') {
+    var myRes = await sb
+      .from('Trans_JobTickets')
+      .select('*')
+      .eq('requester_id', STATE.user.user_id)
+      .order('created_at', { ascending: false });
+    if (myRes.error) throw new Error(myRes.error.message);
+    return { tickets: await enrichTicketsClient_(myRes.data || []) };
+  }
+
+  if (action === 'cancelTicket') {
+    var nowIso = new Date().toISOString();
+    var cRes = await sb
+      .from('Trans_JobTickets')
+      .update({
+        status: 'CANCELLED',
+        cancelled_at: nowIso,
+        cancel_reason: payload.cancel_reason || 'ผู้แจ้งยกเลิกรายการ',
+        updated_at: nowIso
+      })
+      .eq('jtr_id', payload.jtr_id)
+      .eq('status', 'PENDING')
+      .select('*')
+      .maybeSingle();
+
+    if (cRes.error || !cRes.data) {
+      throw new Error('ไม่สามารถยกเลิกได้ เนื่องจากทีมช่างรับงานไปแล้ว');
+    }
+    await sb.from('Trans_StatusLogs').insert({
+      jtr_id: payload.jtr_id,
+      from_status: 'PENDING',
+      to_status: 'CANCELLED',
+      changed_by: STATE.user.user_id,
+      changed_via: 'LIFF',
+      note: payload.cancel_reason || 'ผู้แจ้งยกเลิกรายการ'
+    });
+    return { ticket: cRes.data };
+  }
+
+  if (action === 'listQueueTickets') {
+    var q = sb.from('Trans_JobTickets').select('*').order('created_at', { ascending: false });
+    var stFilter = payload.status || 'ACTIVE';
+    if (stFilter === 'ACTIVE') {
+      q = q.in('status', ['PENDING', 'ACCEPTED', 'IN_PROGRESS', 'ON_HOLD']);
+    } else if (stFilter !== 'ALL') {
+      q = q.eq('status', stFilter);
+    }
+    var qData = await q;
+    if (qData.error) throw new Error(qData.error.message);
+    return {
+      tickets: await enrichTicketsClient_(qData.data || []),
+      technicians: STATE.master.technicians
+    };
+  }
+
+  if (action === 'acceptTicket') {
+    var accRes = await sb.rpc('rpc_accept_ticket', {
+      p_jtr_id: payload.jtr_id,
+      p_tech_user_id: STATE.user.user_id,
+      p_via: 'LIFF'
+    });
+    if (accRes.error) throw new Error(accRes.error.message);
+    return {
+      alreadyAccepted: Boolean(accRes.data && accRes.data.alreadyAccepted),
+      ticket: accRes.data
+    };
+  }
+
+  if (action === 'updateTicketStatus') {
+    var jtrId2 = payload.jtr_id;
+    var nextSt = payload.to_status;
+    var nowIso2 = new Date().toISOString();
+
+    var curRes = await sb.from('Trans_JobTickets').select('*').eq('jtr_id', jtrId2).single();
+    if (curRes.error || !curRes.data) throw new Error('ไม่พบใบงาน ' + jtrId2);
+    var cur = curRes.data;
+
+    var patch = { status: nextSt, updated_at: nowIso2 };
+    if (!cur.first_accepted_by) {
+      patch.first_accepted_by = STATE.user.user_id;
+      patch.first_accepted_at = nowIso2;
+    }
+
+    if (nextSt === 'IN_PROGRESS' && !cur.started_at) {
+      patch.started_at = nowIso2;
+    } else if (nextSt === 'ON_HOLD') {
+      patch.on_hold_reason = payload.on_hold_reason || '';
+    } else if (nextSt === 'COMPLETED' || nextSt === 'CANNOT_REPAIR') {
+      if (!cur.started_at) patch.started_at = nowIso2;
+      patch.cat_id_actual = payload.cat_id_actual || cur.cat_id_reported;
+      patch.cause_solution = payload.cause_solution || '';
+      patch.materials_used = payload.materials_used || '';
+      patch.tech_note = payload.tech_note || '';
+      patch.finished_at = nowIso2;
+      patch.finished_by = STATE.user.user_id;
+
+      var afterImgs = (payload.images || []).slice(0, 3);
+      if (afterImgs.length > 0) {
+        var uploadedAfter = await Promise.all(afterImgs.map(function (dUrl, idx) {
+          return uploadImageToSupabaseStorage_(dUrl, jtrId2, 'AFTER', idx + 1);
+        }));
+        var afterRows = uploadedAfter.map(function (up, idx) {
+          return {
+            jtr_id: jtrId2,
+            att_type: 'AFTER',
+            seq: idx + 1,
+            drive_file_id: up.storagePath,
+            file_url: up.fileUrl,
+            uploaded_by: STATE.user.user_id
+          };
+        });
+        await sb.from('Trans_Attachments').insert(afterRows);
+      }
+
+      var collabIds = Array.isArray(payload.collaborator_tech_ids) && payload.collaborator_tech_ids.length
+        ? payload.collaborator_tech_ids
+        : [STATE.user.user_id];
+      var firstAccepterId = patch.first_accepted_by || cur.first_accepted_by || STATE.user.user_id;
+
+      await sb.from('Trans_Assignments').delete().eq('jtr_id', jtrId2);
+      var uniqueIds = Array.from(new Set(collabIds));
+      var asgRows = uniqueIds.map(function (tid) {
+        return {
+          jtr_id: jtrId2,
+          tech_id: tid,
+          is_first_accepter: (tid === firstAccepterId),
+          recorded_by: STATE.user.user_id
+        };
+      });
+      await sb.from('Trans_Assignments').insert(asgRows);
+    }
+
+    await sb.from('Trans_JobTickets').update(patch).eq('jtr_id', jtrId2);
+    await sb.from('Trans_StatusLogs').insert({
+      jtr_id: jtrId2,
+      from_status: cur.status,
+      to_status: nextSt,
+      changed_by: STATE.user.user_id,
+      changed_via: 'LIFF',
+      note: payload.cause_solution || payload.on_hold_reason || nextSt
+    });
+
+    return { ticket: Object.assign({}, cur, patch) };
+  }
+
+  if (action === 'adminListUsers') {
+    var uRes = await sb.from('Master_Users').select('*').order('user_id', { ascending: true });
+    if (uRes.error) throw new Error(uRes.error.message);
+    var deptMap2 = {};
+    (STATE.master.departments || []).forEach(function (d) { deptMap2[d.dept_id] = d; });
+    var usersList = (uRes.data || []).map(function (u) {
+      var dp = deptMap2[u.dept_id] || { dept_name: '', division_name: '' };
+      return Object.assign({}, u, {
+        dept_name: dp.dept_name,
+        division_name: dp.division_name
+      });
+    });
+    return { users: usersList };
+  }
+
+  if (action === 'adminSaveUser') {
+    var uPayload = {
+      user_username: payload.user_username || '',
+      user_password: payload.user_password || '',
+      user_name: payload.user_name,
+      user_phone: payload.user_phone || '',
+      dept_id: payload.dept_id || 'DEP01',
+      user_role: payload.user_role || 'user',
+      telegram_user_id: payload.telegram_user_id || '',
+      is_active: Boolean(payload.is_active),
+      updated_at: new Date().toISOString()
+    };
+    if (payload.user_id) {
+      var upU = await sb.from('Master_Users').update(uPayload).eq('user_id', payload.user_id);
+      if (upU.error) throw new Error(upU.error.message);
+    } else {
+      var insU = await sb.from('Master_Users').insert(uPayload);
+      if (insU.error) throw new Error(insU.error.message);
+    }
+    return await callSupabaseDirect_('adminListUsers', {});
+  }
+
+  if (action === 'adminResetLine') {
+    var rst = await sb.from('Master_Users').update({
+      line_user_id: '',
+      line_display_name: '',
+      line_linked_at: null,
+      updated_at: new Date().toISOString()
+    }).eq('user_id', payload.user_id);
+    if (rst.error) throw new Error(rst.error.message);
+    return await callSupabaseDirect_('adminListUsers', {});
+  }
+
+  if (action === 'adminDashboard') {
+    var allTRes = await sb.from('Trans_JobTickets').select('*').order('created_at', { ascending: false });
+    var allTickets = await enrichTicketsClient_(allTRes.data || []);
+
+    var getFy = function (iso) {
+      var d = new Date(iso || Date.now());
+      var yBE = d.getFullYear() + 543;
+      return (d.getMonth() + 1) >= 10 ? (yBE + 1) : yBE;
+    };
+    var currentFy = getFy(new Date());
+    var reqFy = payload.fiscal_year ? String(payload.fiscal_year) : String(currentFy);
+    var fySet = {};
+    fySet[String(currentFy)] = true;
+
+    var filtered = allTickets.filter(function (t) {
+      var fy = getFy(t.created_at);
+      fySet[String(fy)] = true;
+      return reqFy === 'ALL' || String(fy) === reqFy;
+    });
+
+    var statusCounts = { PENDING: 0, ACCEPTED: 0, IN_PROGRESS: 0, ON_HOLD: 0, COMPLETED: 0, CANNOT_REPAIR: 0, CANCELLED: 0 };
+    var byCategory = {};
+    var byBuilding = {};
+    var respMins = [];
+    var repHours = [];
+    var techStatsMap = {};
+
+    (STATE.master.technicians || []).forEach(function (tc) {
+      techStatsMap[tc.user_id] = {
+        tech_id: tc.user_id,
+        tech_name: tc.user_name,
+        total_participated: 0,
+        completed_jobs: 0,
+        in_progress_jobs: 0,
+        first_accepted_count: 0,
+        repair_hours_sum: 0,
+        repair_hours_count: 0
+      };
+    });
+
+    filtered.forEach(function (t) {
+      statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+      var cKey = t.main_category || 'ไม่ระบุ';
+      byCategory[cKey] = (byCategory[cKey] || 0) + 1;
+      var bKey = t.bld_name || 'ไม่ระบุ';
+      byBuilding[bKey] = (byBuilding[bKey] || 0) + 1;
+
+      var cMs = new Date(t.created_at).getTime();
+      var aMs = t.first_accepted_at ? new Date(t.first_accepted_at).getTime() : NaN;
+      var fMs = t.finished_at ? new Date(t.finished_at).getTime() : NaN;
+      var jobHrs = NaN;
+      if (!isNaN(cMs) && !isNaN(aMs) && aMs >= cMs) respMins.push((aMs - cMs) / 60000);
+      if (!isNaN(aMs) && !isNaN(fMs) && fMs >= aMs) {
+        jobHrs = (fMs - aMs) / 3600000;
+        repHours.push(jobHrs);
+      }
+
+      (t.assignments || []).forEach(function (asg) {
+        if (!techStatsMap[asg.tech_id]) {
+          techStatsMap[asg.tech_id] = {
+            tech_id: asg.tech_id,
+            tech_name: asg.tech_name,
+            total_participated: 0,
+            completed_jobs: 0,
+            in_progress_jobs: 0,
+            first_accepted_count: 0,
+            repair_hours_sum: 0,
+            repair_hours_count: 0
+          };
+        }
+        var st = techStatsMap[asg.tech_id];
+        st.total_participated++;
+        if (asg.is_first_accepter) st.first_accepted_count++;
+        if (t.status === 'COMPLETED') {
+          st.completed_jobs++;
+          if (!isNaN(jobHrs)) {
+            st.repair_hours_sum += jobHrs;
+            st.repair_hours_count++;
+          }
+        } else if (['ACCEPTED', 'IN_PROGRESS', 'ON_HOLD'].indexOf(t.status) !== -1) {
+          st.in_progress_jobs++;
+        }
+      });
+    });
+
+    var startMonthIso = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    var pushCountRes = await sb
+      .from('Sys_NotificationLogs')
+      .select('*', { count: 'exact', head: true })
+      .eq('channel', 'LINE_PUSH')
+      .eq('result', 'SENT')
+      .gte('sent_at', startMonthIso);
+
+    return {
+      fiscal_year: reqFy,
+      available_fiscal_years: Object.keys(fySet).sort().reverse(),
+      kpi: {
+        total: filtered.length,
+        pending_open: statusCounts.PENDING + statusCounts.ACCEPTED + statusCounts.IN_PROGRESS + statusCounts.ON_HOLD,
+        completed: statusCounts.COMPLETED,
+        avg_response_mins: respMins.length ? Math.round((respMins.reduce(function (a, b) { return a + b; }, 0) / respMins.length) * 10) / 10 : 0,
+        avg_repair_hours: repHours.length ? Math.round((repHours.reduce(function (a, b) { return a + b; }, 0) / repHours.length) * 10) / 10 : 0,
+        line_push_used: pushCountRes.count || 0,
+        line_push_limit: 300
+      },
+      by_category: byCategory,
+      by_building: byBuilding,
+      tech_stats: Object.keys(techStatsMap).map(function (k) {
+        var it = techStatsMap[k];
+        return Object.assign({}, it, {
+          avg_repair_hours: it.repair_hours_count ? Math.round((it.repair_hours_sum / it.repair_hours_count) * 10) / 10 : 0
+        });
+      }),
+      tickets: filtered
+    };
+  }
+
+  if (action === 'adminSendPendingSummary') {
+    var notifyUrl = STATE.supabaseUrl + '/functions/v1/notify-event';
+    await fetch(notifyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + STATE.supabaseAnonKey
+      },
+      body: JSON.stringify({ event: 'DAILY_SUMMARY' })
+    });
+    return { sent: true };
+  }
+
+  throw new Error('Unsupported action: ' + action);
+}
+
 async function callApi(action, payload, silent) {
+  // โหมดที่ 1: Direct Supabase Mode (Sub-second Latency < 1 วินาที)
+  if (STATE.supabaseClient) {
+    try {
+      return await callSupabaseDirect_(action, payload);
+    } catch (sbErr) {
+      if (sbErr && sbErr.message === 'UNAUTHORIZED_UNBOUND') {
+        showLoginView();
+      }
+      if (!silent) showToast(sbErr.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อฐานข้อมูล', 'error');
+      throw sbErr;
+    }
+  }
+
+  // โหมดที่ 2: Fallback ไปยัง Google Apps Script Web App API
   if (!STATE.apiUrl) {
     document.getElementById('setupApiBanner').classList.remove('hidden');
-    throw new Error('กรุณาตั้งค่า API_URL ก่อนใช้งาน');
+    throw new Error('กรุณาตั้งค่า SUPABASE_URL หรือ API_URL ก่อนใช้งาน');
   }
 
   var bodyObj = Object.assign({}, payload || {}, {
@@ -126,10 +763,20 @@ async function initApp() {
   var cfg = window.EMMS_CONFIG || {};
   var urlParams = new URLSearchParams(window.location.search);
 
+  STATE.supabaseUrl = (urlParams.get('supabaseUrl') || localStorage.getItem('EMMS_SUPABASE_URL') || cfg.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+  STATE.supabaseAnonKey = (urlParams.get('supabaseKey') || localStorage.getItem('EMMS_SUPABASE_ANON_KEY') || cfg.SUPABASE_ANON_KEY || '').trim();
+  STATE.supabaseBucket = cfg.SUPABASE_BUCKET || 'ticket-attachments';
+
   STATE.apiUrl = urlParams.get('api') || localStorage.getItem('EMMS_API_URL') || cfg.API_URL || '';
   STATE.liffId = urlParams.get('liffId') || localStorage.getItem('EMMS_LIFF_ID') || cfg.LIFF_ID || '';
 
-  if (!STATE.apiUrl) {
+  if (STATE.supabaseUrl && STATE.supabaseAnonKey && window.supabase) {
+    STATE.supabaseClient = window.supabase.createClient(STATE.supabaseUrl, STATE.supabaseAnonKey);
+  } else {
+    STATE.supabaseClient = null;
+  }
+
+  if (!STATE.supabaseClient && !STATE.apiUrl) {
     hideLoading();
     document.getElementById('setupApiBanner').classList.remove('hidden');
     return;
@@ -137,16 +784,27 @@ async function initApp() {
 
   try {
     showLoading('กำลังตรวจสอบสิทธิ์ผ่าน LINE...');
-    // หากไม่ได้ระบุ LIFF_ID ใน config.js ให้ดึงจากชีต Sys_Config ผ่าน API อัตโนมัติ
-    if (!STATE.liffId && STATE.apiUrl && !urlParams.get('dev')) {
+    // หากไม่ได้ระบุ LIFF_ID ใน config.js ให้ดึงจากตาราง Sys_Config อัตโนมัติ
+    if (!STATE.liffId && !urlParams.get('dev')) {
       try {
-        var pubRes = await fetch(STATE.apiUrl + '?action=publicConfig');
-        var pubJson = await pubRes.json();
-        if (pubJson && pubJson.ok && pubJson.data && pubJson.data.LIFF_ID) {
-          STATE.liffId = String(pubJson.data.LIFF_ID).trim();
+        if (STATE.supabaseClient) {
+          var liffCfgRes = await STATE.supabaseClient
+            .from('Sys_Config')
+            .select('config_value')
+            .eq('config_key', 'LIFF_ID')
+            .maybeSingle();
+          if (liffCfgRes.data && liffCfgRes.data.config_value) {
+            STATE.liffId = String(liffCfgRes.data.config_value).trim();
+          }
+        } else if (STATE.apiUrl) {
+          var pubRes = await fetch(STATE.apiUrl + '?action=publicConfig');
+          var pubJson = await pubRes.json();
+          if (pubJson && pubJson.ok && pubJson.data && pubJson.data.LIFF_ID) {
+            STATE.liffId = String(pubJson.data.LIFF_ID).trim();
+          }
         }
       } catch (cfgErr) {
-        console.warn('Auto-fetch publicConfig warning:', cfgErr);
+        console.warn('Auto-fetch LIFF_ID warning:', cfgErr);
       }
     }
     await initLiffOrDevIdentity();

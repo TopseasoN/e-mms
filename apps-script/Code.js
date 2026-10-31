@@ -168,6 +168,11 @@ function routeApiAction_(action, payload) {
       return { sent: true };
     }
 
+    case 'adminSyncSupabaseToSheets': {
+      requireAuthenticatedUser_(payload, ['admin']);
+      return syncAllFromSupabase();
+    }
+
     default:
       throw new Error('ไม่รู้จักคำสั่ง API: ' + action);
   }
@@ -180,6 +185,7 @@ var DEFAULT_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxg71MIIDI5Rtm
  *  1. สร้าง/อัปเดตฐานข้อมูล 15 ชีต
  *  2. ตั้ง Time Trigger สรุปงานค้างทุกเช้า 08:00 น.
  *  3. ผูก Telegram Webhook เข้ากับ Web App URL อัตโนมัติ
+ *  4. หากตั้งค่า SUPABASE_URL ไว้ จะเปิด Auto-Sync ทุก 1 ชม. ให้ทันที
  */
 function initializeSystemAll() {
   var dbLog = setupDatabase();
@@ -194,6 +200,16 @@ function initializeSystemAll() {
     dbLog.push('✓ ผูก Telegram Webhook: ' + JSON.stringify(tgRes));
   } catch (e2) {
     dbLog.push('⚠️ setupTelegramWebhook: ' + e2);
+  }
+  try {
+    var sbCreds = getSupabaseCredentials_();
+    if (sbCreds.url && sbCreds.key) {
+      setupSupabaseHourlySyncTrigger();
+      syncAllFromSupabase();
+      dbLog.push('✓ ตั้งเวลา Auto-Sync จาก Supabase ทุก 1 ชม. และซิงค์ข้อมูลครั้งแรกเรียบร้อย');
+    }
+  } catch (e3) {
+    dbLog.push('⚠️ setupSupabaseHourlySyncTrigger: ' + e3);
   }
   Logger.log(dbLog.join('\n'));
   return dbLog;
