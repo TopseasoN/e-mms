@@ -290,8 +290,10 @@ git add -A && git commit -m "..." && git push
 ## 13. งานที่เหลือ / ไอเดียเฟสถัดไป
 
 **ต้องทำ:**
-- [ ] `git push` โค้ดทั้งหมดขึ้น GitHub
-- [ ] สร้างโปรเจกต์ Supabase (Region: Singapore) และรัน `supabase/migrations/20261101000000_init_emms_schema.sql`
-- [ ] กรอก `SUPABASE_URL` และ `SUPABASE_ANON_KEY` ใน `web/config.js` และใน Apps Script `Script Properties`
-- [ ] เปิดใช้งาน Auto-Sync ทุก 1 ชั่วโมงจากเมนู `⚡ e-MMS (Supabase Sync)` บน Google Sheets
+- [x] `git push` โค้ดทั้งหมดขึ้น GitHub (`main`)
+- [x] สร้างโปรเจกต์ Supabase (Region: Singapore) และรัน `supabase/migrations/20261101000000_init_emms_schema.sql`
+- [x] กรอก `SUPABASE_URL` และ `SUPABASE_ANON_KEY` ใน `web/config.js` และใน Apps Script `Script Properties`
+- [x] ทดสอบการซิงค์ข้อมูลจาก Supabase ลง Google Sheets สำเร็จ (8.06 วินาที)
+- [ ] เปิดใช้งาน Auto-Sync ทุก 1 ชั่วโมงจากเมนู `⚡ e-MMS (Supabase Sync)` บน Google Sheets (Keep-Alive)
+- [ ] Deploy Supabase Edge Functions สำหรับส่งแจ้งเตือน Telegram / LINE
 - [ ] ทดสอบ UAT ครบวงจร (แจ้งซ่อม < 1 วินาที, แจ้งเตือน Telegram, กดรับงาน, ปิดงาน, ซิงค์รายงานลง Google Sheets)
